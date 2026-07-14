@@ -1,0 +1,71 @@
+# Unreal Engine 5 .gitignore
+
+# Compiled Object files
+*.o
+*.obj
+*.pch
+*.pdb
+*.ilk
+*.lib
+*.exp
+*.dll
+*.exe
+*.app
+*.bin
+*.pak
+*.iobj
+*.ipdb
+
+# Visual Studio Files
+.vs/
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.suo
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.opendb
+
+# Rider/CLion
+.idea/
+*.iml
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# User-specific files
+*.user
+*.userosscache
+*.sln.docuser
+
+# OS Generated Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# Build Results
+Binaries/
+DerivedDataCache/
+Intermediate/
+
+# Saved Data
+Saved/
+
+# Editor Temp Files
+*.swp
+*.swo
+*~
+
+# Config User Settings (keep default configs)
+Config/DefaultEditorPerProjectUserSettings.ini
+
+# Local project-specific settings
+/*.opensdf
+/*.sdf
