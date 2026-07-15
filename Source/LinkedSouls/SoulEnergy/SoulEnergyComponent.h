@@ -54,6 +54,19 @@ public:
 	void DrainEnergy(float Amount);
 
 	/**
+	 *  Consumes energy with a success check. Returns false if insufficient.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Soul Energy")
+	bool ConsumeSoulEnergy(float Amount);
+
+	/**
+	 *  Explicitly restores energy (e.g. pickup, event). Server-authoritative.
+	 *  Capped at MaxEnergy.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Soul Energy")
+	void RestoreSoulEnergy(float Amount);
+
+	/**
 	 *  Enables / disables continuous drain (reference-counted).
 	 *  Multiple callers (Body + Soul) can each request drain; it stops only
 	 *  when the last caller releases.
@@ -101,9 +114,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Soul Energy|Config|Regen", meta = (ClampMin = "0.0", ClampMax = "100.0"))
 	float ProximityRegenRate = 5.0f;
 
-	/** Regeneration per second while Body + Soul are apart. */
+	/** Regeneration per second while both players are alive (prompt spec: +2/sec). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Soul Energy|Config|Regen", meta = (ClampMin = "0.0", ClampMax = "100.0"))
-	float BaseRegenRate = 1.0f;
+	float BaseRegenRate = 2.0f;
 
 	/** Continuous drain per second while at least one ability is active. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Soul Energy|Config|Drain", meta = (ClampMin = "0.0", ClampMax = "100.0"))

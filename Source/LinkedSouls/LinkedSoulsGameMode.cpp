@@ -2,6 +2,7 @@
 
 #include "LinkedSoulsGameMode.h"
 #include "LinkedSoulsGameState.h"
+#include "SoulEnergy/SoulEnergyComponent.h"
 #include "HUD/LinkedSoulsHUD.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/Character.h"
@@ -60,6 +61,51 @@ void ALinkedSoulsGameMode::PostLogin(
 	}
 
 	SpawnPlayerPawn(NewPlayer, NumInitializedPlayers == 0);
+
+	if (NumInitializedPlayers >= 2)
+	{
+		LinkPartners();
+	}
+}
+
+void ALinkedSoulsGameMode::LinkPartners()
+{
+	ALinkedSoulsPlayerCharacter* Body = nullptr;
+	ALinkedSoulsPlayerCharacter* Soul = nullptr;
+
+	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+	{
+		APlayerController* PC = It->Get();
+		if (!PC) continue;
+
+		ALinkedSoulsPlayerCharacter* Char = Cast<ALinkedSoulsPlayerCharacter>(PC->GetPawn());
+		if (!Char) continue;
+
+		if (Char->GetPlayerWorld() == EDualWorld::RealWorld)
+		{
+			Body = Char;
+		}
+		else
+		{
+			Soul = Char;
+		}
+	}
+
+	if (Body && Soul)
+	{
+		Body->SetLinkedPartner(Soul);
+		Soul->SetLinkedPartner(Body);
+
+		ABodyCharacter* BodyChar = Cast<ABodyCharacter>(Body);
+		ASoulCharacter* SoulChar = Cast<ASoulCharacter>(Soul);
+		if (BodyChar && SoulChar)
+		{
+			BodyChar->SetLinkedSoul(SoulChar);
+			SoulChar->SetLinkedBody(BodyChar);
+		}
+
+		UE_LOG(LogTemp, Warning, TEXT("LinkedSouls: Partners linked — Body <-> Soul"));
+	}
 }
 
 void ALinkedSoulsGameMode::SpawnPlayerPawn(
@@ -101,4 +147,30 @@ void ALinkedSoulsGameMode::SpawnPlayerPawn(
 			TEXT("SpawnPlayerPawn: FAILED for %s"),
 			bIsBody ? TEXT("Body") : TEXT("Soul"))
 	}
+}
+
+// -- Soul Energy ----------------------------------------------------------------
+
+USoulEnergyComponent* ALinkedSoulsGameMode::GetSoulEnergyComponent() const
+{
+	ALinkedSoulsGameState* GS = GetGameState<ALinkedSoulsGameState>();
+	return GS ? GS->SoulEnergyComponent : nullptr;
+}
+
+bool ALinkedSoulsGameMode::ConsumeSoulEnergy(float Amount)
+{
+	USoulEnergyComponent* SEC = GetSoulEnergyComponent();
+	return SEC ? SEC->ConsumeSoulEnergy(Amount) : false;
+}
+
+void ALinkedSoulsGameMode::RestoreSoulEnergy(float Amount)
+{
+	USoulEnergyComponent* SEC = GetSoulEnergyComponent();
+	if (SEC) SEC->RestoreSoulEnergy(Amount);
+}
+
+float ALinkedSoulsGameMode::GetSoulEnergy() const
+{
+	USoulEnergyComponent* SEC = GetSoulEnergyComponent();
+	return SEC ? SEC->GetSoulEnergy() : 0.0f;
 }

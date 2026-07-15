@@ -60,6 +60,33 @@ void USoulEnergyComponent::DrainEnergy(float Amount)
 	SetEnergyInternal(SoulEnergy - Amount);
 }
 
+bool USoulEnergyComponent::ConsumeSoulEnergy(float Amount)
+{
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return false;
+	}
+
+	if (SoulEnergy < Amount)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("SoulEnergyComponent: ConsumeSoulEnergy %.1f failed - have %.1f"), Amount, SoulEnergy);
+		return false;
+	}
+
+	SetEnergyInternal(SoulEnergy - Amount);
+	return true;
+}
+
+void USoulEnergyComponent::RestoreSoulEnergy(float Amount)
+{
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return;
+	}
+
+	SetEnergyInternal(SoulEnergy + Amount);
+}
+
 void USoulEnergyComponent::SetContinuousDrain(bool bEnabled)
 {
 	// server-authoritative only

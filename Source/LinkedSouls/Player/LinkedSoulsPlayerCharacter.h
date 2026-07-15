@@ -166,6 +166,20 @@ protected:
 
 public:
 
+	// -- Co-op partner link --------------------------------------------------
+
+	/** The other player character (Body ↔ Soul). Set by GameMode PostLogin. */
+	UPROPERTY(BlueprintReadOnly, Category = "LinkedSouls|Co-op")
+	TWeakObjectPtr<ALinkedSoulsPlayerCharacter> LinkedPartner;
+
+	/** Assign the co-op partner. */
+	UFUNCTION(BlueprintCallable, Category = "LinkedSouls|Co-op")
+	void SetLinkedPartner(ALinkedSoulsPlayerCharacter* Partner);
+
+	/** @returns the linked partner, or nullptr if unset or destroyed. */
+	UFUNCTION(BlueprintPure, Category = "LinkedSouls|Co-op")
+	ALinkedSoulsPlayerCharacter* GetLinkedPartner() const;
+
 	/** Returns CameraBoom subobject **/
 	FORCEINLINE class USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
 

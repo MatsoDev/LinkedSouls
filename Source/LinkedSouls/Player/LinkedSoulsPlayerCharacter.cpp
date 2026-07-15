@@ -176,6 +176,18 @@ void ALinkedSoulsPlayerCharacter::DoJumpEnd()
 	StopJumping();
 }
 
+// -- Co-op partner -----------------------------------------------------------
+
+void ALinkedSoulsPlayerCharacter::SetLinkedPartner(ALinkedSoulsPlayerCharacter* Partner)
+{
+	LinkedPartner = Partner;
+}
+
+ALinkedSoulsPlayerCharacter* ALinkedSoulsPlayerCharacter::GetLinkedPartner() const
+{
+	return LinkedPartner.Get();
+}
+
 // -- Lifecycle ---------------------------------------------------------------
 
 void ALinkedSoulsPlayerCharacter::BeginPlay()
