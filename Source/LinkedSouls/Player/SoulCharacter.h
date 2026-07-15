@@ -36,6 +36,13 @@ public:
 
 protected:
 
+	// -- Lifecycle -----------------------------------------------------------
+
+	virtual void BeginPlay() override;
+
+	/** Adds Soul-specific input mapping context (IMC_Soul). */
+	virtual void AddInputContexts() override;
+
 	// -- Mesh + material ----------------------------------------------------
 
 	/**

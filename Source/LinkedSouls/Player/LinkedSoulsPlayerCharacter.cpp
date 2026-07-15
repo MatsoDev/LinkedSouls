@@ -10,6 +10,7 @@
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/Controller.h"
 #include "GameFramework/PlayerController.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "AbilitySystemComponent.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
@@ -42,6 +43,23 @@ ALinkedSoulsPlayerCharacter::ALinkedSoulsPlayerCharacter()
 
 	// attribute set backing Health / SoulEnergy / Corruption
 	AttributeSet = CreateDefaultSubobject<ULinkedSoulsAttributeSet>(TEXT("AttributeSet"));
+
+	// Character rotates to face movement direction (standard third-person feel)
+	bUseControllerRotationYaw = false;
+	GetCharacterMovement()->bOrientRotationToMovement = true;
+
+	// Load shared Input Actions so they are non-null when SetupPlayerInputComponent binds them
+	static ConstructorHelpers::FObjectFinder<UInputAction> MoveAsset(TEXT("/Game/Input/Actions/IA_Move.IA_Move"));
+	if (MoveAsset.Succeeded()) MoveAction = MoveAsset.Object;
+
+	static ConstructorHelpers::FObjectFinder<UInputAction> JumpAsset(TEXT("/Game/Input/Actions/IA_Jump.IA_Jump"));
+	if (JumpAsset.Succeeded()) JumpAction = JumpAsset.Object;
+
+	static ConstructorHelpers::FObjectFinder<UInputAction> LookAsset(TEXT("/Game/Input/Actions/IA_Look.IA_Look"));
+	if (LookAsset.Succeeded()) LookAction = LookAsset.Object;
+
+	static ConstructorHelpers::FObjectFinder<UInputAction> MouseLookAsset(TEXT("/Game/Input/Actions/IA_MouseLook.IA_MouseLook"));
+	if (MouseLookAsset.Succeeded()) MouseLookAction = MouseLookAsset.Object;
 }
 
 // -- IAbilitySystemInterface -------------------------------------------------
@@ -102,6 +120,10 @@ void ALinkedSoulsPlayerCharacter::SetupPlayerInputComponent(UInputComponent* Pla
 		{
 			EnhancedInput->BindAction(LookAction, ETriggerEvent::Triggered, this, &ALinkedSoulsPlayerCharacter::Look);
 		}
+		if (MouseLookAction)
+		{
+			EnhancedInput->BindAction(MouseLookAction, ETriggerEvent::Triggered, this, &ALinkedSoulsPlayerCharacter::Look);
+		}
 	}
 }
 
@@ -121,11 +143,14 @@ void ALinkedSoulsPlayerCharacter::Look(const FInputActionValue& Value)
 
 void ALinkedSoulsPlayerCharacter::DoMove(float Right, float Forward)
 {
-	// only move while we have a controller
 	if (Controller)
 	{
-		AddMovementInput(GetActorRightVector(), Right);
-		AddMovementInput(GetActorForwardVector(), Forward);
+		// camera-relative movement: WASD aligns to camera facing, not actor facing
+		const FRotator YawRotation(0, Controller->GetControlRotation().Yaw, 0);
+		const FVector ForwardDir = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
+		const FVector RightDir = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
+		AddMovementInput(ForwardDir, Forward);
+		AddMovementInput(RightDir, Right);
 	}
 }
 
@@ -172,6 +197,61 @@ void ALinkedSoulsPlayerCharacter::BeginPlay()
 			Manager->RegisterSoul(this);
 		}
 	}
+
+	// Deferred IMC setup: in multiplayer BeginPlay fires before possession,
+	// so GetController() is null. A short timer retries after possession.
+	GetWorldTimerManager().SetTimer(DelayedIMCSetupTimer, this,
+		&ALinkedSoulsPlayerCharacter::AddInputContexts, 0.1f, false);
+}
+
+void ALinkedSoulsPlayerCharacter::OnRep_Controller()
+{
+	Super::OnRep_Controller();
+
+	// Client path: controller just replicated, add input contexts now.
+	AddInputContexts();
+}
+
+void ALinkedSoulsPlayerCharacter::AddInputContexts()
+{
+	// Prevent double-add if multiple paths fire (e.g. PossessedBy + timer).
+	if (bInputContextsAdded)
+	{
+		return;
+	}
+
+	APlayerController* PC = Cast<APlayerController>(GetController());
+	if (!PC)
+	{
+		// Not possessed yet — timer (or future call via PossessedBy / OnRep) will retry.
+		return;
+	}
+
+	UEnhancedInputLocalPlayerSubsystem* Subsystem =
+		ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(
+			PC->GetLocalPlayer());
+	if (!Subsystem)
+	{
+		// Not a local player (e.g. this Pawn is controlled by a remote client on the server).
+		return;
+	}
+
+	bInputContextsAdded = true;
+	GetWorldTimerManager().ClearTimer(DelayedIMCSetupTimer);
+
+	UInputMappingContext* IMC_Default = LoadObject<UInputMappingContext>(nullptr,
+		TEXT("/Game/Input/IMC_Default.IMC_Default"));
+	if (IMC_Default)
+	{
+		Subsystem->AddMappingContext(IMC_Default, 0);
+	}
+
+	UInputMappingContext* IMC_MouseLook = LoadObject<UInputMappingContext>(nullptr,
+		TEXT("/Game/Input/IMC_MouseLook.IMC_MouseLook"));
+	if (IMC_MouseLook)
+	{
+		Subsystem->AddMappingContext(IMC_MouseLook, 1);
+	}
 }
 
 void ALinkedSoulsPlayerCharacter::PossessedBy(AController* NewController)
@@ -180,6 +260,10 @@ void ALinkedSoulsPlayerCharacter::PossessedBy(AController* NewController)
 
 	// server-side GAS initialization
 	InitAbilitySystem();
+
+	// Server path: controller is now valid. For listen-server players this
+	// also adds the input mapping contexts immediately.
+	AddInputContexts();
 }
 
 void ALinkedSoulsPlayerCharacter::OnRep_PlayerState()

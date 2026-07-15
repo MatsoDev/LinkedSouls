@@ -148,8 +148,21 @@ protected:
 	/** Client-side GAS initialization. */
 	virtual void OnRep_PlayerState() override;
 
+	/** Called when the Controller replicates to clients. Adds input contexts. */
+	virtual void OnRep_Controller() override;
+
+	/** Adds the shared Enhanced Input mapping contexts (IMC_Default, IMC_MouseLook). */
+	virtual void AddInputContexts();
+
 	/** Initializes the AbilitySystemComponent + AttributeSet (called on server and client paths). */
 	void InitAbilitySystem();
+
+protected:
+	/** Flag to prevent adding input contexts multiple times. */
+	bool bInputContextsAdded = false;
+
+	/** Timer handle for deferred IMC setup in BeginPlay. */
+	FTimerHandle DelayedIMCSetupTimer;
 
 public:
 

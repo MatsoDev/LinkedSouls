@@ -12,6 +12,8 @@
 #include "Engine/SkeletalMesh.h"
 #include "UObject/ConstructorHelpers.h"
 #include "EnhancedInputComponent.h"
+#include "EnhancedInputSubsystems.h"
+#include "InputMappingContext.h"
 #include "TimerManager.h"
 #include "DualWorldManager.h"
 
@@ -49,6 +51,45 @@ ABodyCharacter::ABodyCharacter()
 	ElementComponent = CreateDefaultSubobject<UElementComponent>(TEXT("ElementComponent"));
 	ElementComponent->AllowedElements = { ELinkedSoulsElement::Fire, ELinkedSoulsElement::Water, ELinkedSoulsElement::Earth };
 	ElementComponent->SetActiveElement(ELinkedSoulsElement::Fire);
+
+	// Load Body-specific Input Actions
+	static ConstructorHelpers::FObjectFinder<UInputAction> WorldShiftAsset(TEXT("/Game/Input/Actions/IA_WorldShift.IA_WorldShift"));
+	if (WorldShiftAsset.Succeeded()) WorldShiftAction = WorldShiftAsset.Object;
+}
+
+void ABodyCharacter::BeginPlay()
+{
+	Super::BeginPlay();
+}
+
+void ABodyCharacter::AddInputContexts()
+{
+	Super::AddInputContexts();
+
+	if (!bInputContextsAdded)
+	{
+		return;
+	}
+
+	APlayerController* PC = Cast<APlayerController>(GetController());
+	if (!PC) return;
+
+	UEnhancedInputLocalPlayerSubsystem* Subsystem =
+		ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(
+			PC->GetLocalPlayer());
+	if (!Subsystem) return;
+
+	UInputMappingContext* IMC = LoadObject<UInputMappingContext>(nullptr,
+		TEXT("/Game/Input/IMC_Body.IMC_Body"));
+	if (IMC)
+	{
+		Subsystem->AddMappingContext(IMC, 0);
+		UE_LOG(LogTemp, Warning, TEXT("BodyCharacter: IMC_Body added"));
+	}
+	else
+	{
+		UE_LOG(LogTemp, Error, TEXT("BodyCharacter: IMC_Body not found!"));
+	}
 }
 
 void ABodyCharacter::ConfigureMesh()

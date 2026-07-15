@@ -34,6 +34,13 @@ public:
 
 protected:
 
+	// -- Lifecycle -----------------------------------------------------------
+
+	virtual void BeginPlay() override;
+
+	/** Adds Body-specific input mapping context (IMC_Body). */
+	virtual void AddInputContexts() override;
+
 	// -- Mesh ----------------------------------------------------------------
 
 	/**

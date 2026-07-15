@@ -15,6 +15,8 @@
 #include "UObject/ConstructorHelpers.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "EnhancedInputComponent.h"
+#include "EnhancedInputSubsystems.h"
+#include "InputMappingContext.h"
 #include "TimerManager.h"
 #include "DualWorldManager.h"
 
@@ -51,13 +53,60 @@ ASoulCharacter::ASoulCharacter()
 	// Soul drifts - low gravity for ethereal movement
 	GetCharacterMovement()->GravityScale = 0.3f;
 
-	// Soul overlaps the world rather than blocking it
-	GetCapsuleComponent()->SetCollisionProfileName(TEXT("OverlapAll"));
+	// Pawn profile: blocks world static (floor, walls) so Soul stands on solid ground.
+	// If spirit-phasing through enemies is needed later, create a custom collision
+	// profile that blocks WorldStatic but overlaps Pawn.
+	GetCapsuleComponent()->SetCollisionProfileName(TEXT("Pawn"));
 
 	// ElementComponent — Soul uses spiritual elements
 	ElementComponent = CreateDefaultSubobject<UElementComponent>(TEXT("ElementComponent"));
 	ElementComponent->AllowedElements = { ELinkedSoulsElement::Light, ELinkedSoulsElement::Shadow, ELinkedSoulsElement::Void };
 	ElementComponent->SetActiveElement(ELinkedSoulsElement::Light);
+
+	// Load Soul-specific Input Actions
+	static ConstructorHelpers::FObjectFinder<UInputAction> ManifestAsset(TEXT("/Game/Input/Actions/IA_Manifest.IA_Manifest"));
+	if (ManifestAsset.Succeeded()) ManifestAction = ManifestAsset.Object;
+
+	static ConstructorHelpers::FObjectFinder<UInputAction> SpiritAttackAsset(TEXT("/Game/Input/Actions/IA_SpiritAttack.IA_SpiritAttack"));
+	if (SpiritAttackAsset.Succeeded()) SpiritAttackAction = SpiritAttackAsset.Object;
+
+	static ConstructorHelpers::FObjectFinder<UInputAction> SoulPulseAsset(TEXT("/Game/Input/Actions/IA_SoulPulse.IA_SoulPulse"));
+	if (SoulPulseAsset.Succeeded()) SoulPulseAction = SoulPulseAsset.Object;
+}
+
+void ASoulCharacter::BeginPlay()
+{
+	Super::BeginPlay();
+}
+
+void ASoulCharacter::AddInputContexts()
+{
+	Super::AddInputContexts();
+
+	if (!bInputContextsAdded)
+	{
+		return;
+	}
+
+	APlayerController* PC = Cast<APlayerController>(GetController());
+	if (!PC) return;
+
+	UEnhancedInputLocalPlayerSubsystem* Subsystem =
+		ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(
+			PC->GetLocalPlayer());
+	if (!Subsystem) return;
+
+	UInputMappingContext* IMC = LoadObject<UInputMappingContext>(nullptr,
+		TEXT("/Game/Input/IMC_Soul.IMC_Soul"));
+	if (IMC)
+	{
+		Subsystem->AddMappingContext(IMC, 0);
+		UE_LOG(LogTemp, Warning, TEXT("SoulCharacter: IMC_Soul added"));
+	}
+	else
+	{
+		UE_LOG(LogTemp, Error, TEXT("SoulCharacter: IMC_Soul not found!"));
+	}
 }
 
 // -- Mesh + material ---------------------------------------------------------
