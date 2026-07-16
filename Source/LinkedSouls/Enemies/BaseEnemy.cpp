@@ -2,11 +2,16 @@
 
 
 #include "Enemies/BaseEnemy.h"
+#include "Player/LinkedSoulsAttributeSet.h"
+#include "Player/SoulCharacter.h"
+#include "AbilitySystemComponent.h"
+#include "Abilities/GE_CorruptionDamage.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Engine/SkeletalMesh.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "Engine/Engine.h"
+#include "Engine/OverlapResult.h"
 
 ABaseEnemy::ABaseEnemy()
 {
@@ -46,6 +51,12 @@ ABaseEnemy::ABaseEnemy()
 			UE_LOG(LogTemp, Error, TEXT("BaseEnemy: Failed to load placeholder mesh - check Manny path"));
 		}
 	}
+
+	AbilitySystemComponent = CreateDefaultSubobject<UAbilitySystemComponent>(TEXT("AbilitySystemComponent"));
+	AbilitySystemComponent->SetIsReplicated(true);
+	AbilitySystemComponent->SetReplicationMode(EGameplayEffectReplicationMode::Minimal);
+
+	AttributeSet = CreateDefaultSubobject<ULinkedSoulsAttributeSet>(TEXT("AttributeSet"));
 }
 
 // -- Lifecycle ---------------------------------------------------------------
@@ -56,6 +67,22 @@ void ABaseEnemy::BeginPlay()
 
 	CurrentPhysicalHP = PhysicalHP;
 	CurrentSpiritHP = SpiritHP;
+
+	if (HasAuthority())
+	{
+		InitEnemyAbilitySystem();
+
+		GetWorldTimerManager().SetTimer(AttackSoulTimerHandle, this,
+			&ABaseEnemy::Server_EnemyAttackSoul, 2.0f, true);
+	}
+}
+
+void ABaseEnemy::InitEnemyAbilitySystem()
+{
+	if (AbilitySystemComponent)
+	{
+		AbilitySystemComponent->InitAbilityActorInfo(this, this);
+	}
 }
 
 // -- Damage API --------------------------------------------------------------
@@ -129,6 +156,51 @@ void ABaseEnemy::OnSpiritDestroyed()
 	OnEnemyWeakened.Broadcast(this);
 
 	UE_LOG(LogTemp, Warning, TEXT("BaseEnemy [%s]: Spirit destroyed — Body can now finish it"), *GetName());
+}
+
+// -- Placeholder attack -------------------------------------------------------
+
+void ABaseEnemy::Server_EnemyAttackSoul()
+{
+	if (!HasAuthority() || !AbilitySystemComponent)
+	{
+		return;
+	}
+
+	TArray<FOverlapResult> Overlaps;
+	FCollisionShape SphereShape = FCollisionShape::MakeSphere(200.0f);
+	FCollisionQueryParams QueryParams;
+	QueryParams.AddIgnoredActor(this);
+
+	GetWorld()->OverlapMultiByObjectType(Overlaps, GetActorLocation(), FQuat::Identity,
+		FCollisionObjectQueryParams(ECC_TO_BITFIELD(ECC_Pawn)), SphereShape, QueryParams);
+
+	for (const FOverlapResult& Overlap : Overlaps)
+	{
+		ASoulCharacter* Soul = Cast<ASoulCharacter>(Overlap.GetActor());
+		if (!Soul)
+		{
+			continue;
+		}
+
+		UAbilitySystemComponent* SoulASC = Soul->GetAbilitySystemComponent();
+		if (!SoulASC)
+		{
+			continue;
+		}
+
+		FGameplayEffectContextHandle EffectContext = AbilitySystemComponent->MakeEffectContext();
+		EffectContext.AddInstigator(this, this);
+
+		const FGameplayEffectSpecHandle SpecHandle = AbilitySystemComponent->MakeOutgoingSpec(
+			ULS_GE_CorruptionDamage::StaticClass(), 1.0f, EffectContext);
+
+		if (SpecHandle.Data.IsValid())
+		{
+			AbilitySystemComponent->ApplyGameplayEffectSpecToTarget(*SpecHandle.Data.Get(), SoulASC);
+			UE_LOG(LogTemp, Warning, TEXT("BaseEnemy [%s]: Applied +15 Corruption to Soul"), *GetName());
+		}
+	}
 }
 
 // -- Death logic -------------------------------------------------------------

@@ -108,8 +108,21 @@ protected:
 	/** Called when Spirit Attack input is triggered. */
 	void OnSpiritAttack();
 
+	/** Server RPC — applies spirit attack damage on authority. */
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_SpiritAttack();
+
+	/** Applies one tick of Corruption Decay (called every 2s). */
+	void TickCorruptionDecay();
+
+	FTimerHandle CorruptionDecayTimer;
+
 	/** Called when Soul Pulse input is triggered. */
 	void OnSoulPulse();
+
+	/** Server RPC — applies soul pulse damage on authority. */
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_SoulPulse();
 
 public:
 

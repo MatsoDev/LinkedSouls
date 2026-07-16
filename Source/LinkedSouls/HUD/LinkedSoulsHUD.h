@@ -4,6 +4,7 @@
 #include "GameFramework/HUD.h"
 #include "AbilitySystemInterface.h"
 #include "AbilitySystemComponent.h"
+#include "GameplayTagContainer.h"
 #include "LinkedSoulsAttributeSet.h"
 #include "SoulEnergyComponent.h"
 #include "ElementComponent.h"
@@ -18,6 +19,7 @@
  *  - Listens to SoulEnergyComponent delegates.
  *  - Listens to ElementComponent OnElementChanged.
  *  - Knows whether the local player is Body or Soul to show correct bars.
+ *  - Polls synergy status every 0.5s.
  */
 UCLASS()
 class LINKEDSOULS_API ALinkedSoulsHUD : public AHUD
@@ -64,6 +66,11 @@ public:
 	UFUNCTION()
 	void OnActiveElementChanged(ELinkedSoulsElement NewElement);
 
+	// ── Synergy ──
+
+	/** Polls the local ASC for the synergy gameplay tag and updates the widget. */
+	void PollSynergy();
+
 	// ── Helpers ──
 
 	float GetAttributeMax(FGameplayAttribute Attribute) const;
@@ -72,4 +79,6 @@ private:
 
 	UPROPERTY()
 	bool bLocalPlayerIsBody = true;
+
+	FTimerHandle SynergyPollTimer;
 };

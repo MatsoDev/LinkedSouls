@@ -16,6 +16,9 @@
 #include "InputMappingContext.h"
 #include "TimerManager.h"
 #include "DualWorldManager.h"
+#include "AbilitySystemComponent.h"
+#include "Abilities/GE_BodyMeleeDamage.h"
+#include "Abilities/GE_BodySynergyBuff.h"
 
 ABodyCharacter::ABodyCharacter()
 {
@@ -52,9 +55,23 @@ ABodyCharacter::ABodyCharacter()
 	ElementComponent->AllowedElements = { ELinkedSoulsElement::Fire, ELinkedSoulsElement::Water, ELinkedSoulsElement::Earth };
 	ElementComponent->SetActiveElement(ELinkedSoulsElement::Fire);
 
+	// Assign the Manny animation blueprint so the mesh plays locomotion
+	static ConstructorHelpers::FClassFinder<UAnimInstance> ABP_Mannequin(TEXT("/Game/Characters/Mannequins/Animations/ABP_Manny.ABP_Manny_C"));
+	if (ABP_Mannequin.Succeeded())
+	{
+		GetMesh()->SetAnimInstanceClass(ABP_Mannequin.Class);
+	}
+	else
+	{
+		UE_LOG(LogTemp, Error, TEXT("BodyCharacter: Failed to load ABP_Manny - T-pose will persist"));
+	}
+
 	// Load Body-specific Input Actions
 	static ConstructorHelpers::FObjectFinder<UInputAction> WorldShiftAsset(TEXT("/Game/Input/Actions/IA_WorldShift.IA_WorldShift"));
 	if (WorldShiftAsset.Succeeded()) WorldShiftAction = WorldShiftAsset.Object;
+
+	static ConstructorHelpers::FObjectFinder<UInputAction> BodyMeleeAsset(TEXT("/Game/Input/Actions/IA_BodyMelee.IA_BodyMelee"));
+	if (BodyMeleeAsset.Succeeded()) BodyMeleeAction = BodyMeleeAsset.Object;
 }
 
 void ABodyCharacter::BeginPlay()
@@ -199,12 +216,113 @@ void ABodyCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
 	// bind the shared base actions first
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
 
-	// then bind Body-specific input (World Shift)
+	// then bind Body-specific input
 	if (UEnhancedInputComponent* EnhancedInput = Cast<UEnhancedInputComponent>(PlayerInputComponent))
 	{
 		if (WorldShiftAction)
 		{
 			EnhancedInput->BindAction(WorldShiftAction, ETriggerEvent::Started, this, &ABodyCharacter::OnWorldShift);
+		}
+
+		if (BodyMeleeAction)
+		{
+			EnhancedInput->BindAction(BodyMeleeAction, ETriggerEvent::Started, this, &ABodyCharacter::OnBodyMelee);
+		}
+	}
+}
+
+// -- Combat -------------------------------------------------------------------
+
+void ABodyCharacter::OnBodyMelee()
+{
+	Server_BodyMelee();
+}
+
+void ABodyCharacter::Server_BodyMelee_Implementation()
+{
+	PerformMeleeAttack();
+}
+
+bool ABodyCharacter::Server_BodyMelee_Validate()
+{
+	return true;
+}
+
+void ABodyCharacter::PerformMeleeAttack()
+{
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!ASC)
+	{
+		return;
+	}
+
+	FVector Start = GetActorLocation();
+	FVector Forward = GetActorForwardVector();
+	FVector End = Start + Forward * 600.0f;
+
+	FCollisionShape SphereShape = FCollisionShape::MakeSphere(100.0f);
+	FCollisionQueryParams QueryParams;
+	QueryParams.AddIgnoredActor(this);
+
+	TArray<FHitResult> OutHits;
+	GetWorld()->SweepMultiByChannel(OutHits, Start, End, FQuat::Identity, ECC_Pawn, SphereShape, QueryParams);
+
+	bool bHitAnyTarget = false;
+	TSet<AActor*> AlreadyHit;
+	for (const FHitResult& Hit : OutHits)
+	{
+		AActor* Target = Hit.GetActor();
+		if (!Target || AlreadyHit.Contains(Target))
+		{
+			continue;
+		}
+		AlreadyHit.Add(Target);
+
+		IAbilitySystemInterface* ASI = Cast<IAbilitySystemInterface>(Target);
+		if (!ASI)
+		{
+			continue;
+		}
+
+		UAbilitySystemComponent* TargetASC = ASI->GetAbilitySystemComponent();
+		if (!TargetASC)
+		{
+			continue;
+		}
+
+		FGameplayEffectContextHandle EffectContext = ASC->MakeEffectContext();
+		EffectContext.AddInstigator(this, this);
+
+		const FGameplayEffectSpecHandle SpecHandle = ASC->MakeOutgoingSpec(
+			ULS_GE_BodyMeleeDamage::StaticClass(), 1.0f, EffectContext);
+
+		if (SpecHandle.Data.IsValid())
+		{
+			ASC->ApplyGameplayEffectSpecToTarget(*SpecHandle.Data.Get(), TargetASC);
+			bHitAnyTarget = true;
+		}
+	}
+
+	if (bHitAnyTarget)
+	{
+		ASoulCharacter* Soul = GetLinkedSoul();
+		if (Soul)
+		{
+			UAbilitySystemComponent* SoulASC = Soul->GetAbilitySystemComponent();
+			if (SoulASC)
+			{
+				FGameplayEffectContextHandle SyncCtx = ASC->MakeEffectContext();
+				SyncCtx.AddInstigator(this, this);
+
+				const FGameplayEffectSpecHandle SyncSpec = ASC->MakeOutgoingSpec(
+					ULS_GE_BodySynergyBuff::StaticClass(), 1.0f, SyncCtx);
+
+				if (SyncSpec.Data.IsValid())
+				{
+					ASC->ApplyGameplayEffectSpecToTarget(*SyncSpec.Data.Get(), SoulASC);
+					UE_LOG(LogTemp, Warning, TEXT("LinkedSouls: Synergy buff applied to Soul (10s)"));
+				}
+			}
 		}
 	}
 }

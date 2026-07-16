@@ -180,6 +180,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "LinkedSouls|Co-op")
 	ALinkedSoulsPlayerCharacter* GetLinkedPartner() const;
 
+	/** Called when the character dies (Health ≤ 0 or Corruption ≥ Max). */
+	UFUNCTION(BlueprintCallable, Category = "LinkedSouls|Combat")
+	virtual void OnCharacterDeath();
+
 	/** Returns CameraBoom subobject **/
 	FORCEINLINE class USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
 

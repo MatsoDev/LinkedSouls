@@ -8,6 +8,9 @@
 
 ALinkedSoulsHUD::ALinkedSoulsHUD()
 {
+	// Default widget class — a pure C++ widget with no Blueprint child.
+	// Override in a Blueprint HUD subclass to get UMG layout with BindWidget bindings.
+	HUDWidgetClass = ULinkedSoulsUserWidget::StaticClass();
 }
 
 void ALinkedSoulsHUD::BeginPlay()
@@ -44,8 +47,9 @@ void ALinkedSoulsHUD::BindToLocalPlayer()
 	APawn* Pawn = PC->GetPawn();
 	if (!Pawn)
 	{
+		GetWorldTimerManager().SetTimerForNextTick(this, &ALinkedSoulsHUD::BindToLocalPlayer);
 		UE_LOG(LogTemp, Warning,
-			TEXT("LinkedSoulsHUD: Local pawn is null — cannot bind"));
+			TEXT("LinkedSoulsHUD: Local pawn is null — deferring bind"));
 		return;
 	}
 
@@ -119,6 +123,13 @@ void ALinkedSoulsHUD::BindToLocalPlayer()
 		UE_LOG(LogTemp, Log,
 			TEXT("LinkedSoulsHUD: ElementComponent delegate bound"));
 	}
+
+	// ── Synergy polling timer ──
+	GetWorldTimerManager().SetTimer(SynergyPollTimer, this,
+		&ALinkedSoulsHUD::PollSynergy, 0.5f, true);
+
+	// fire an initial poll immediately
+	PollSynergy();
 }
 
 // ────────────────────────────────────────────────────────────
@@ -204,6 +215,31 @@ void ALinkedSoulsHUD::OnActiveElementChanged(ELinkedSoulsElement NewElement)
 	}
 	UE_LOG(LogTemp, Log, TEXT("HUD: Active element changed to %s"),
 		*UEnum::GetValueAsString(NewElement));
+}
+
+// ────────────────────────────────────────────────────────────
+// Synergy
+// ────────────────────────────────────────────────────────────
+
+void ALinkedSoulsHUD::PollSynergy()
+{
+	APlayerController* PC = GetOwningPlayerController();
+	if (!PC) return;
+
+	APawn* Pawn = PC->GetPawn();
+	if (!Pawn) return;
+
+	UAbilitySystemComponent* ASC =
+		Pawn->FindComponentByClass<UAbilitySystemComponent>();
+	if (!ASC) return;
+
+	const bool bSynergyActive = ASC->HasMatchingGameplayTag(
+		FGameplayTag::RequestGameplayTag(FName("Linked.Synergy.Active")));
+
+	if (HUDWidget)
+	{
+		HUDWidget->SetSynergyActive(bSynergyActive);
+	}
 }
 
 // ────────────────────────────────────────────────────────────

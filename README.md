@@ -1,199 +1,164 @@
 # Linked Souls
 
-![Unreal Engine 5](https://img.shields.io/badge/Unreal%20Engine%205-000?style=flat&logo=unrealengine&logoColor=white)
+![Unreal Engine 5.8](https://img.shields.io/badge/Unreal%20Engine%205.8-000?style=flat&logo=unrealengine&logoColor=white)
 ![C++](https://img.shields.io/badge/C%2B%2B-00599C?style=flat&logo=cplusplus&logoColor=white)
-![Multiplayer](https://img.shields.io/badge/Multiplayer-00B4D8?style=flat&logo=unrealengine&logoColor=white)
+![GAS](https://img.shields.io/badge/GAS-FF6F00?style=flat&logo=unrealengine&logoColor=white)
 
 ## Game Overview
 
-**Linked Souls** is a cooperative multiplayer game where two players are spiritually linked across dimensions. One player exists in the **physical world (Body)**, while the other inhabits the **spirit world (Soul)**. Together, they must cooperate to solve intricate puzzles, defeat powerful enemies, and maintain their spiritual connection to progress through a mysterious, interconnected world.
+**Linked Souls** is a cooperative multiplayer game where two players are spiritually linked across dimensions. One player exists in the **physical world (Body)**, while the other inhabits the **spirit world (Soul)**. Together, they must cooperate to solve intricate puzzles, defeat powerful enemies, and maintain their spiritual connection.
 
-The core mechanic revolves around the **World Shift** ability, which allows players to transition between dimensions, revealing hidden paths and solving environmental puzzles that span both realms.
+The core mechanics revolve around **Gameplay Ability System (GAS)**, dual-world traversal, shared Soul Energy management, and co-op synergy between Body and Soul.
 
 ## Features
 
-- **Dual-World Gameplay**: Two distinct dimensions (Physical and Spirit) with unique puzzles and mechanics
+- **Dual-World Gameplay**: Two distinct dimensions (Physical and Spirit) with unique mechanics
 - **Cooperative Multiplayer**: Seamless 2-player experience via Listen Server
-- **Spiritual Link System**: Players share abilities and must coordinate actions across dimensions
-- **Dynamic Combat**: Spirit-based attacks that affect both physical and spiritual enemies
-- **Puzzle Integration**: Environmental puzzles requiring both Body and Soul players to collaborate
-- **Enhanced Input System**: Modern Unreal Engine 5 input handling with custom actions
-- **Custom Game Architecture**: Dedicated GameMode, GameState, and Character classes for multiplayer
-- **Progressive Difficulty**: Challenging encounters that test both players' coordination
+- **GAS Combat System**: Full GameplayAbilitySystem integration with 7 custom GameplayEffects
+- **Shared Soul Energy Pool**: Both players consume from a single energy resource
+- **Co-op Synergy Buff**: Body hits grant Soul bonus damage (Linked.Synergy.Active tag)
+- **Corruption Mechanic**: Soul takes corruption damage over time, death at max corruption
+- **Dynamic Combat**: Sphere-sweep melee (Body), line-trace spirit attack (Soul), AoE soul pulse
+- **Enemy GAS**: Enemies own ASC + AttributeSet with their own corruption attacks
+- **Pure C++ HUD**: UMG bars for Health, Soul Energy, Corruption with synergy/world indicators
+- **Animation System**: Manny ABP assigned in C++ with custom AnimInstance properties
+- **Enhanced Input System**: Separate IMC_Body / IMC_Soul mapping contexts
 
 ## Controls
 
-### Body Player (Physical World)
+### Body Player (Physical World) — IMC_Body
 
-| Action | Input |
-|--------|-------|
-| Movement | WASD |
-| Look Around | Mouse |
-| Jump | Spacebar |
-| Primary Attack | Left Mouse Button |
-| Special Ability | Right Mouse Button |
-| Interact | E |
-| World Shift | Q |
-| Sprint | Left Shift |
+| Action | Input | Description |
+|--------|-------|-------------|
+| Movement | WASD | Camera-relative movement |
+| Look Around | Mouse | Yaw/pitch camera control |
+| Jump | Spacebar | Standard jump |
+| Body Melee | F | 600cm sphere sweep, 25 damage, applies synergy buff to Soul |
+| World Shift | E | Shift to Spirit World (costs energy, continuous drain) |
 
-### Soul Player (Spirit World)
+### Soul Player (Spirit World) — IMC_Soul
 
-| Action | Input |
-|--------|-------|
-| Movement | WASD |
-| Look Around | Mouse |
-| Jump | Spacebar |
-| Spirit Attack | Left Mouse Button |
-| Soul Pulse | Right Mouse Button |
-| Interact | E |
-| World Shift | Q |
-| Manifest | Left Shift |
+| Action | Input | Description |
+|--------|-------|-------------|
+| Movement | WASD | Camera-relative movement (low gravity 0.3f) |
+| Look Around | Mouse | Yaw/pitch camera control |
+| Jump | Spacebar | Standard jump |
+| Spirit Attack | LMB | 800cm line trace, 30 damage (45 with synergy), costs 20 energy |
+| Soul Pulse | Q | 400cm AoE sphere, 20 damage all targets, costs 30 energy |
+| Manifest | E | Manifest to Real World (costs energy, continuous drain) |
+
+## Combat System (GAS)
+
+### Gameplay Effects
+
+| Effect | Type | Amount | Tags |
+|--------|------|--------|------|
+| GE_BodyMeleeDamage | Instant | -25 Health | `Combat.Damage.Physical` |
+| GE_SpiritAttackDamage | Instant | -30 Health | `Combat.Damage.Spirit` |
+| GE_SpiritAttackSynergyDamage | Instant | -45 Health | `Combat.Damage.Spirit` |
+| GE_SoulPulseDamage | Instant | -20 Health | `Combat.Damage.Spirit`, `Combat.AoE` |
+| GE_CorruptionDamage | Instant | +15 Corruption | `Combat.Damage.Corruption` |
+| GE_CorruptionDecay | Instant | -5 Corruption | (self-applied every 2s) |
+| GE_BodySynergyBuff | Duration 10s | — | `Linked.Synergy.Active` |
+
+### Hit Detection
+
+- **Body Melee (F)**: Server RPC → `SweepMultiByChannel(ECC_Pawn)` with 600cm length, 100cm radius sphere. Applies GE_BodyMeleeDamage to each target with an ASC. On any hit, applies GE_BodySynergyBuff to linked Soul's ASC.
+- **Spirit Attack (LMB)**: Server RPC → `LineTraceSingleByChannel(ECC_Pawn)` 800cm. Applies GE_SpiritAttackDamage or GE_SpiritAttackSynergyDamage (if synergy tag present). Costs 20 Soul Energy.
+- **Soul Pulse (Q)**: Server RPC → `OverlapMultiByObjectType(ECC_Pawn)` 400cm radius. Applies GE_SoulPulseDamage to all targets. Costs 30 Soul Energy.
+- **Enemy Attack**: `OverlapMultiByObjectType(ECC_Pawn)` 200cm radius every 2s. Applies GE_CorruptionDamage (+15 Corruption) to nearby Soul.
+
+### Death Handling
+
+- `PostGameplayEffectExecute` in `ULinkedSoulsAttributeSet` checks Health ≤ 0 (Body) or Corruption ≥ Max (Soul)
+- On death: `Owner->Destroy()` or `OnCharacterDeath()` for players; `SetLifeSpan(3.0f)` for enemies
+
+### Soul Energy System
+
+- **Shared pool** on `ALinkedSoulsGameState` via `USoulEnergyComponent`
+- Starts at 50, max 100
+- **Regen**: +2/sec base, +5/sec when Body+Soul within 1000cm
+- **Drain**: -2/sec while World Shift/Manifest active
+- **Ability costs**: SpiritAttack 20, SoulPulse 30, Shift/Manifest 20 flat + continuous drain
+- Blocked if insufficient energy (`ConsumeSoulEnergy` returns false)
 
 ## Project Structure
 
 ```
 LinkedSouls/
-├── Source/
-│   ├── LinkedSouls.Target.cs
-│   ├── LinkedSoulsEditor.Target.cs
-│   └── LinkedSouls/
-│       ├── Abilities/           # Gameplay ability system
-│       ├── DualWorld/           # World dimension logic
-│       ├── Elements/            # Environmental elements
-│       ├── Enemies/             # Enemy AI and mechanics
-│       ├── GameState/           # Game state management
-│       ├── HUD/                 # User interface
-│       ├── Input/               # Input system configuration
-│       ├── Player/              # Player-specific code
-│       ├── Puzzles/             # Puzzle mechanics
-│       ├── SoulEnergy/          # Spirit world mechanics
-│       ├── WorldPortal/         # Dimension transition system
-│       └── LinkedSouls*.h/cpp   # Core game classes
+├── Source/LinkedSouls/
+│   ├── Abilities/                # 7 GAS GameplayEffects (.h/.cpp pair each)
+│   │   ├── GE_BodyMeleeDamage.h/cpp
+│   │   ├── GE_BodySynergyBuff.h/cpp
+│   │   ├── GE_CorruptionDamage.h/cpp
+│   │   ├── GE_CorruptionDecay.h/cpp
+│   │   ├── GE_SoulPulseDamage.h/cpp
+│   │   ├── GE_SpiritAttackDamage.h/cpp
+│   │   └── GE_SpiritAttackSynergyDamage.h/cpp
+│   ├── Animation/                # C++ AnimInstance (Speed, bIsInAir, bIsAttacking)
+│   ├── DualWorld/                # World dimension manager
+│   ├── Elements/                 # ElementComponent + ELinkedSoulsElement
+│   ├── Enemies/                  # ABaseEnemy (GAS, dual-HP, corruption attacks)
+│   ├── GameState/                # ALinkedSoulsGameState (owns SoulEnergyComponent)
+│   ├── HUD/                      # ALinkedSoulsHUD + ULinkedSoulsUserWidget
+│   ├── Input/                    # Enhanced Input configuration
+│   ├── Player/                   # BodyCharacter, SoulCharacter, AttributeSet
+│   ├── Puzzles/                  # Puzzle mechanics
+│   ├── SoulEnergy/               # USoulEnergyComponent (shared pool)
+│   └── WorldPortal/              # Dimension transition system
 ├── Content/
-│   ├── Blueprints/              # Visual scripting assets
-│   ├── Characters/              # Character models and animations
-│   ├── Input/                   # Input mapping contexts
-│   ├── Maps/                    # Game levels
-│   └── ...                      # Additional content directories
-├── Config/                      # Engine configuration files
-├── LinkedSouls.uproject         # Project file
-└── README.md                    # This file
+│   ├── Blueprints/               # BP_LinkedSoulsGameMode
+│   ├── Characters/               # Manny/SK_Mannequin meshes + ABP_Manny
+│   ├── Input/                    # IMC_Body, IMC_Soul, IA_* assets
+│   └── Maps/                     # Game levels
+├── Config/
+├── LinkedSouls.uproject
+└── README.md
 ```
 
 ## Core Classes
 
 | Class | File | Description |
 |-------|------|-------------|
-| `ALinkedSoulsGameMode` | `LinkedSoulsGameMode.h/cpp` | Custom GameMode for multiplayer setup |
-| `ALinkedSoulsGameState` | `LinkedSoulsGameState.h/cpp` | Game state management and synchronization |
-| `ALinkedSoulsCharacter` | `LinkedSoulsCharacter.h/cpp` | Main player character with dual-world capabilities |
-| `ALinkedSoulsPlayerController` | `LinkedSoulsPlayerController.h/cpp` | Player input handling and network authority |
+| `ALinkedSoulsGameMode` | `LinkedSoulsGameMode.h/cpp` | Spawns Body/Soul in PostLogin, links partners |
+| `ALinkedSoulsGameState` | `GameState/LinkedSoulsGameState.h/cpp` | Owns the shared SoulEnergyComponent |
+| `ABodyCharacter` | `Player/BodyCharacter.h/cpp` | Body player — melee combat, World Shift |
+| `ASoulCharacter` | `Player/SoulCharacter.h/cpp` | Soul player — spirit attacks, corruption decay |
+| `ALinkedSoulsPlayerCharacter` | `Player/LinkedSoulsPlayerCharacter.h/cpp` | Base class — GAS init, camera, input |
+| `ULinkedSoulsAttributeSet` | `Player/LinkedSoulsAttributeSet.h/cpp` | Health, SoulEnergy, Corruption attributes |
+| `USoulEnergyComponent` | `SoulEnergy/SoulEnergyComponent.h/cpp` | Shared energy pool with regen/drain |
+| `ABaseEnemy` | `Enemies/BaseEnemy.h/cpp` | Enemy with GAS, dual HP, corruption attacks |
+| `ALinkedSoulsHUD` | `HUD/LinkedSoulsHUD.h/cpp` | HUD manager — attribute/synergy binding |
+| `ULinkedSoulsUserWidget` | `HUD/LinkedSoulsUserWidget.h/cpp` | C++ UMG widget with programmatic layout |
+| `ULinkedSoulsAnimInstance` | `Animation/LinkedSoulsAnimInstance.h/cpp` | Animation blueprint properties |
 
 ## Setup & Installation
 
 ### Prerequisites
 
-- **Unreal Engine 5.3+** (recommended 5.4+)
-- **Visual Studio 2022** or **Visual Studio Code** with C++ support
+- **Unreal Engine 5.8**
+- **Visual Studio 2022** with C++ support
 - **Git** with LFS support
 
-### Installation Steps
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/MatsoDev/LinkedSouls.git
-   cd LinkedSouls
-   ```
-
-2. **Initialize Git LFS** (for large binary files)
-   ```bash
-   git lfs install
-   git lfs pull
-   ```
-
-3. **Generate project files**
-   - Right-click `LinkedSouls.uproject` → **Generate Visual Studio project files**
-   - Or run: `"C:\Program Files\Epic Games\UE_5.x\Engine\Build\BatchFiles\GenerateProjectFiles.bat" LinkedSouls.uproject`
-
-4. **Open in Visual Studio**
-   - Open the generated `.sln` file
-   - Set configuration to `Development Editor`
-   - Build the project (Ctrl+Shift+B)
-
-5. **Launch in Unreal Editor**
-   - Open `LinkedSouls.uproject` directly or via Visual Studio
-   - Let shaders compile on first launch
-
-### First Time Setup
-
-1. Open the project in Unreal Editor
-2. Wait for shader compilation to complete
-3. Navigate to `Content/Maps/` to find the main level
-4. Press **Play** to test in single-player mode
-
-## Testing Multiplayer (Listen Server)
-
-### Local Testing Method
-
-1. **Package the Game** (Recommended)
-   - Go to **File → Package Project → Windows → Windows (64-bit)**
-   - Choose an output directory
-   - Wait for packaging to complete
-
-2. **Run Two Instances**
-   - Launch the packaged game executable twice
-   - In the first instance, click **Host Game** (starts as Listen Server)
-   - In the second instance, connect to `localhost` or use direct IP
-
-### Editor Testing
-
-1. **Configure Multiplayer Settings**
-   - Open **Edit → Project Settings → Maps & Modes**
-   - Set **Number of Players** to `2`
-   - Set **Net Mode** to `Play As Listen Server`
-
-2. **Play in Editor**
-   - Click **Play** → Select **Standalone** or **PIE (Play In Editor)**
-   - Use `open 127.0.0.1` in console for second player
-
-### Dedicated Server Testing
+### Installation
 
 ```bash
-# Start server
-LinkedSoulsServer.exe -log
-
-# Start clients
-LinkedSoulsClient.exe 127.0.0.1 -game -log
+git clone https://github.com/MatsoDev/LinkedSouls.git
+cd LinkedSouls
+git lfs install
+git lfs pull
 ```
 
-## Development Workflow
+Right-click `LinkedSouls.uproject` → **Generate Visual Studio project files**, then build in Visual Studio.
 
-### Building Changes
+### Testing Multiplayer
 
-1. Make C++ changes in `Source/LinkedSouls/`
-2. Save files → Hot Reload or Rebuild in Editor
-3. Test changes immediately in Play mode
+In Editor: **Edit → Project Settings → Maps & Modes** → set **Number of Players** to 2, **Net Mode** to `Play As Listen Server`. Press Play.
 
-### Blueprints
+## Development
 
-- Modify Blueprints in `Content/Blueprints/`
-- Create new abilities in `Content/Abilities/`
-- Test in **Play In Editor (PIE)** mode
-
-### Debugging
-
-- Use **Output Log** for console messages
-- Enable **Verbose Logging** in Project Settings
-- Use **Network Profiler** for multiplayer debugging
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Contributing
-
-Contributions are welcome! Please read our contributing guidelines before submitting pull requests.
+All systems are pure C++ — no Blueprint scripting required. Modify source in `Source/LinkedSouls/`, compile via **Live Coding** or rebuild in Visual Studio.
 
 ---
 
-**Built with Unreal Engine 5 | C++ | Enhanced Input System**
+**Built with Unreal Engine 5.8 | C++ | Gameplay Ability System | Enhanced Input**

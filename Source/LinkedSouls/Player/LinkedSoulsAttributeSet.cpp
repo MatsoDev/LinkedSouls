@@ -2,6 +2,8 @@
 
 
 #include "LinkedSoulsAttributeSet.h"
+#include "LinkedSoulsPlayerCharacter.h"
+#include "Enemies/BaseEnemy.h"
 #include "GameplayEffectExtension.h"
 #include "Net/UnrealNetwork.h"
 
@@ -52,13 +54,52 @@ void ULinkedSoulsAttributeSet::PostGameplayEffectExecute(const FGameplayEffectMo
 	Super::PostGameplayEffectExecute(Data);
 
 	// after an effect lands, re-clamp the dependent current attributes
-	const FGameplayAttributeData& HealthData = GetHealth();
-	const FGameplayAttributeData& SoulEnergyData = GetSoulEnergy();
-	const FGameplayAttributeData& CorruptionData = GetCorruption();
+	const float OldHealth = GetHealth();
+	const float OldSoulEnergy = GetSoulEnergy();
+	const float OldCorruption = GetCorruption();
 
 	SetHealth(FMath::Clamp(GetHealth(), 0.0f, GetMaxHealth()));
 	SetSoulEnergy(FMath::Clamp(GetSoulEnergy(), 0.0f, GetMaxSoulEnergy()));
 	SetCorruption(FMath::Clamp(GetCorruption(), 0.0f, GetMaxCorruption()));
+
+	// death detection
+	AActor* Owner = GetOwningActor();
+	if (!Owner || Owner->IsA<ABaseEnemy>())
+	{
+		return;
+	}
+
+	ALinkedSoulsPlayerCharacter* PlayerOwner = Cast<ALinkedSoulsPlayerCharacter>(Owner);
+
+	// Health dropped to zero
+	if (Data.EvaluatedData.Attribute == GetHealthAttribute())
+	{
+		if (GetHealth() <= 0.0f && OldHealth > 0.0f)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("LinkedSouls: %s killed — Health reached 0"), *Owner->GetName());
+			if (PlayerOwner)
+			{
+				PlayerOwner->OnCharacterDeath();
+			}
+			else
+			{
+				Owner->Destroy();
+			}
+		}
+	}
+
+	// Corruption reached maximum
+	if (Data.EvaluatedData.Attribute == GetCorruptionAttribute())
+	{
+		if (GetCorruption() >= GetMaxCorruption() && OldCorruption < GetMaxCorruption())
+		{
+			UE_LOG(LogTemp, Warning, TEXT("LinkedSouls: Soul overwhelmed by Corruption"));
+			if (PlayerOwner)
+			{
+				PlayerOwner->OnCharacterDeath();
+			}
+		}
+	}
 }
 
 // -- Replication --------------------------------------------------------------

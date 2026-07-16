@@ -47,6 +47,11 @@ ALinkedSoulsPlayerCharacter::ALinkedSoulsPlayerCharacter()
 	// Character rotates to face movement direction (standard third-person feel)
 	bUseControllerRotationYaw = false;
 	GetCharacterMovement()->bOrientRotationToMovement = true;
+	GetCharacterMovement()->AirControl = 0.35f;
+	GetCharacterMovement()->MaxWalkSpeed = 600.0f;
+
+	// Position the mesh so the capsule base touches the ground
+	GetMesh()->SetRelativeLocation(FVector(0.0f, 0.0f, -GetCapsuleComponent()->GetScaledCapsuleHalfHeight()));
 
 	// Load shared Input Actions so they are non-null when SetupPlayerInputComponent binds them
 	static ConstructorHelpers::FObjectFinder<UInputAction> MoveAsset(TEXT("/Game/Input/Actions/IA_Move.IA_Move"));
@@ -306,4 +311,9 @@ void ALinkedSoulsPlayerCharacter::InitAbilitySystem()
 
 	// confirm initialization in the output log for testing
 	UE_LOG(LogTemp, Warning, TEXT("ASC Initialized for %s"), *GetName());
+}
+
+void ALinkedSoulsPlayerCharacter::OnCharacterDeath()
+{
+	Destroy();
 }

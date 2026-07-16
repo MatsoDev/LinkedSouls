@@ -50,6 +50,22 @@ protected:
 	 */
 	virtual void ConfigureMesh() override;
 
+	// -- Combat ---------------------------------------------------------------
+
+	/** Input action for Body's melee attack. */
+	UPROPERTY(EditAnywhere, Category = "Combat")
+	UInputAction* BodyMeleeAction;
+
+	/** Called when Body melee input is triggered. */
+	void OnBodyMelee();
+
+	/** Server RPC — applies damage on authority. */
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_BodyMelee();
+
+	/** Performs the melee sphere trace and applies damage (server only). */
+	void PerformMeleeAttack();
+
 	// -- World Shift (Body-only ability) ------------------------------------
 
 	/** Input action that briefly shifts Body into the Spirit World. */

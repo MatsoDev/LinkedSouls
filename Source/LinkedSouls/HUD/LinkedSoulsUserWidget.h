@@ -5,17 +5,6 @@
 #include "Elements/LinkedSoulsElement.h"
 #include "LinkedSoulsUserWidget.generated.h"
 
-/**
- * TEAM ASSET HANDOFF
- * System: UI/HUD
- * Replace with: BP_LinkedSoulsHUDWidget
- *   (child of ULinkedSoulsUserWidget)
- *   implements all BlueprintImplementableEvents
- *   with actual UMG bars, icons, animations
- * Delivered by: UI Designer
- * Format: Blueprint + UMG Widget
- * Priority: High
- */
 UCLASS()
 class LINKEDSOULS_API ULinkedSoulsUserWidget : public UUserWidget
 {
@@ -23,6 +12,36 @@ class LINKEDSOULS_API ULinkedSoulsUserWidget : public UUserWidget
 
 public:
 	ULinkedSoulsUserWidget(const FObjectInitializer& ObjectInitializer);
+
+	// ── Programmatic layout ──
+
+	virtual void NativeConstruct() override;
+
+	// ── BindWidget UMG elements (bound from optional Blueprint child) ──
+
+	UPROPERTY(meta = (BindWidget))
+	class UProgressBar* HealthBar;
+
+	UPROPERTY(meta = (BindWidget))
+	class UProgressBar* SoulEnergyBar;
+
+	UPROPERTY(meta = (BindWidget))
+	class UProgressBar* CorruptionBar;
+
+	UPROPERTY(meta = (BindWidget))
+	class UImage* SynergyIndicator;
+
+	UPROPERTY(meta = (BindWidget))
+	class UImage* WorldIndicator;
+
+	UPROPERTY(meta = (BindWidget))
+	class UTextBlock* HealthLabel;
+
+	UPROPERTY(meta = (BindWidget))
+	class UTextBlock* SoulEnergyLabel;
+
+	UPROPERTY(meta = (BindWidget))
+	class UTextBlock* CorruptionLabel;
 
 	// ── Data (BlueprintReadOnly for UMG binding) ──
 
@@ -56,7 +75,7 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "HUD|World")
 	bool bIsBodyPlayer = true;
 
-	// ── BlueprintImplementableEvent (visual layer) ──
+	// ── BlueprintImplementableEvent (visual layer for BP child) ──
 
 	UFUNCTION(BlueprintImplementableEvent, Category = "HUD")
 	void OnHealthUpdated(float Current, float Max);
@@ -84,4 +103,17 @@ public:
 	void SetEnergyDepletedWarning(bool bDepleted);
 	void UpdateElementSlot(int32 SlotIndex, ELinkedSoulsElement Element);
 	void UpdateWorldIndicator(bool bInSpiritWorld);
+	void SetSynergyActive(bool bActive);
+
+private:
+
+	/** Creates the full UMG layout in C++ when no Blueprint child provides BindWidget slots. */
+	void CreateProgrammaticLayout();
+
+	/** Helper: builds a progress bar. */
+	class UProgressBar* MakeBar(const FLinearColor& FillColor);
+
+	/** Helper: builds a text label. */
+	class UTextBlock* MakeLabel(const FString& DefaultText);
+
 };

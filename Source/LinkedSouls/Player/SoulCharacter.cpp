@@ -19,6 +19,14 @@
 #include "InputMappingContext.h"
 #include "TimerManager.h"
 #include "DualWorldManager.h"
+#include "Engine/World.h"
+#include "Engine/OverlapResult.h"
+#include "AbilitySystemComponent.h"
+#include "Abilities/GE_SpiritAttackDamage.h"
+#include "Abilities/GE_SpiritAttackSynergyDamage.h"
+#include "Abilities/GE_BodySynergyBuff.h"
+#include "Abilities/GE_SoulPulseDamage.h"
+#include "Abilities/GE_CorruptionDecay.h"
 
 ASoulCharacter::ASoulCharacter()
 {
@@ -63,6 +71,17 @@ ASoulCharacter::ASoulCharacter()
 	ElementComponent->AllowedElements = { ELinkedSoulsElement::Light, ELinkedSoulsElement::Shadow, ELinkedSoulsElement::Void };
 	ElementComponent->SetActiveElement(ELinkedSoulsElement::Light);
 
+	// Assign the Manny animation blueprint so the mesh plays locomotion
+	static ConstructorHelpers::FClassFinder<UAnimInstance> ABP_Mannequin(TEXT("/Game/Characters/Mannequins/Animations/ABP_Manny.ABP_Manny_C"));
+	if (ABP_Mannequin.Succeeded())
+	{
+		GetMesh()->SetAnimInstanceClass(ABP_Mannequin.Class);
+	}
+	else
+	{
+		UE_LOG(LogTemp, Error, TEXT("SoulCharacter: Failed to load ABP_Manny - T-pose will persist"));
+	}
+
 	// Load Soul-specific Input Actions
 	static ConstructorHelpers::FObjectFinder<UInputAction> ManifestAsset(TEXT("/Game/Input/Actions/IA_Manifest.IA_Manifest"));
 	if (ManifestAsset.Succeeded()) ManifestAction = ManifestAsset.Object;
@@ -77,6 +96,12 @@ ASoulCharacter::ASoulCharacter()
 void ASoulCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+
+	if (HasAuthority())
+	{
+		GetWorldTimerManager().SetTimer(CorruptionDecayTimer, this,
+			&ASoulCharacter::TickCorruptionDecay, 2.0f, true);
+	}
 }
 
 void ASoulCharacter::AddInputContexts()
@@ -164,12 +189,144 @@ void ASoulCharacter::OnManifest()
 
 void ASoulCharacter::OnSpiritAttack()
 {
-	UE_LOG(LogTemp, Log, TEXT("SoulCharacter: SpiritAttack triggered - full GA in System 7"));
+	Server_SpiritAttack();
+}
+
+void ASoulCharacter::Server_SpiritAttack_Implementation()
+{
+	USoulEnergyComponent* SEC = USoulEnergyComponent::GetSoulEnergyComponent(this);
+	if (!SEC || !SEC->ConsumeSoulEnergy(20.0f))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("SoulCharacter: SpiritAttack blocked — insufficient SoulEnergy"));
+		return;
+	}
+
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!ASC)
+	{
+		return;
+	}
+
+	const bool bHasSynergy = ASC->HasMatchingGameplayTag(
+		FGameplayTag::RequestGameplayTag(FName("Linked.Synergy.Active")));
+	if (bHasSynergy)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("SpiritAttack: Synergy bonus active — 45 damage"));
+	}
+
+	FVector Start = GetActorLocation();
+	FVector End = Start + GetActorForwardVector() * 800.0f;
+
+	FCollisionQueryParams QueryParams;
+	QueryParams.AddIgnoredActor(this);
+
+	FHitResult Hit;
+	GetWorld()->LineTraceSingleByChannel(Hit, Start, End, ECC_Pawn, QueryParams);
+
+	AActor* Target = Hit.GetActor();
+	if (!Target)
+	{
+		return;
+	}
+
+	IAbilitySystemInterface* ASI = Cast<IAbilitySystemInterface>(Target);
+	if (!ASI)
+	{
+		return;
+	}
+
+	UAbilitySystemComponent* TargetASC = ASI->GetAbilitySystemComponent();
+	if (!TargetASC)
+	{
+		return;
+	}
+
+	FGameplayEffectContextHandle EffectContext = ASC->MakeEffectContext();
+	EffectContext.AddInstigator(this, this);
+
+	TSubclassOf<UGameplayEffect> DamageGE = bHasSynergy
+		? ULS_GE_SpiritAttackSynergyDamage::StaticClass()
+		: ULS_GE_SpiritAttackDamage::StaticClass();
+
+	const FGameplayEffectSpecHandle SpecHandle = ASC->MakeOutgoingSpec(
+		DamageGE, 1.0f, EffectContext);
+
+	if (SpecHandle.Data.IsValid())
+	{
+		ASC->ApplyGameplayEffectSpecToTarget(*SpecHandle.Data.Get(), TargetASC);
+	}
+}
+
+bool ASoulCharacter::Server_SpiritAttack_Validate()
+{
+	return true;
 }
 
 void ASoulCharacter::OnSoulPulse()
 {
-	UE_LOG(LogTemp, Log, TEXT("SoulCharacter: SoulPulse triggered - full GA in System 7"));
+	Server_SoulPulse();
+}
+
+void ASoulCharacter::Server_SoulPulse_Implementation()
+{
+	USoulEnergyComponent* SEC = USoulEnergyComponent::GetSoulEnergyComponent(this);
+	if (!SEC || !SEC->ConsumeSoulEnergy(30.0f))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("SoulCharacter: SoulPulse blocked — insufficient SoulEnergy"));
+		return;
+	}
+
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!ASC)
+	{
+		return;
+	}
+
+	TArray<FOverlapResult> Overlaps;
+	FCollisionShape SphereShape = FCollisionShape::MakeSphere(400.0f);
+	FCollisionQueryParams QueryParams;
+	QueryParams.AddIgnoredActor(this);
+
+	GetWorld()->OverlapMultiByObjectType(Overlaps, GetActorLocation(), FQuat::Identity, FCollisionObjectQueryParams(ECC_TO_BITFIELD(ECC_Pawn)), SphereShape, QueryParams);
+
+	TSet<AActor*> AlreadyAffected;
+	for (const FOverlapResult& Overlap : Overlaps)
+	{
+		AActor* Target = Overlap.GetActor();
+		if (!Target || AlreadyAffected.Contains(Target))
+		{
+			continue;
+		}
+		AlreadyAffected.Add(Target);
+
+		IAbilitySystemInterface* ASI = Cast<IAbilitySystemInterface>(Target);
+		if (!ASI)
+		{
+			continue;
+		}
+
+		UAbilitySystemComponent* TargetASC = ASI->GetAbilitySystemComponent();
+		if (!TargetASC)
+		{
+			continue;
+		}
+
+		FGameplayEffectContextHandle EffectContext = ASC->MakeEffectContext();
+		EffectContext.AddInstigator(this, this);
+
+		const FGameplayEffectSpecHandle SpecHandle = ASC->MakeOutgoingSpec(
+			ULS_GE_SoulPulseDamage::StaticClass(), 1.0f, EffectContext);
+
+		if (SpecHandle.Data.IsValid())
+		{
+			ASC->ApplyGameplayEffectSpecToTarget(*SpecHandle.Data.Get(), TargetASC);
+		}
+	}
+}
+
+bool ASoulCharacter::Server_SoulPulse_Validate()
+{
+	return true;
 }
 
 void ASoulCharacter::EnterRealWorld()
@@ -254,6 +411,26 @@ void ASoulCharacter::EndManifest()
 }
 
 // -- Combat ------------------------------------------------------------------
+
+void ASoulCharacter::TickCorruptionDecay()
+{
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	if (!ASC)
+	{
+		return;
+	}
+
+	FGameplayEffectContextHandle EffectContext = ASC->MakeEffectContext();
+	EffectContext.AddInstigator(this, this);
+
+	const FGameplayEffectSpecHandle SpecHandle = ASC->MakeOutgoingSpec(
+		ULS_GE_CorruptionDecay::StaticClass(), 1.0f, EffectContext);
+
+	if (SpecHandle.Data.IsValid())
+	{
+		ASC->ApplyGameplayEffectSpecToSelf(*SpecHandle.Data.Get());
+	}
+}
 
 void ASoulCharacter::OnCorruptionDamage(float Amount)
 {

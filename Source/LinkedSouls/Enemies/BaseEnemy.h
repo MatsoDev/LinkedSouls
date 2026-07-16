@@ -4,10 +4,13 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
+#include "AbilitySystemInterface.h"
 #include "BaseEnemy.generated.h"
 
 class ABodyCharacter;
 class ASoulCharacter;
+class UAbilitySystemComponent;
+class ULinkedSoulsAttributeSet;
 
 /** Which world(s) this enemy exists in. */
 UENUM(BlueprintType)
@@ -45,13 +48,15 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnSpiritDamage, ABaseEnemy*, Enemy
  *  rejected with a log message.
  */
 UCLASS()
-class LINKEDSOULS_API ABaseEnemy : public ACharacter
+class LINKEDSOULS_API ABaseEnemy : public ACharacter, public IAbilitySystemInterface
 {
 	GENERATED_BODY()
 
 public:
 
 	ABaseEnemy();
+
+	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override { return AbilitySystemComponent; }
 
 	// -- Config --------------------------------------------------------------
 
@@ -105,9 +110,19 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Enemy|Combat")
 	virtual void TakeSpiritDamage(float Amount, AActor* DamageInstigator);
 
+	// -- GAS Components ------------------------------------------------------
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	UAbilitySystemComponent* AbilitySystemComponent;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	ULinkedSoulsAttributeSet* AttributeSet;
+
 protected:
 
 	virtual void BeginPlay() override;
+
+	void InitEnemyAbilitySystem();
 
 	/** Checks whether the enemy should die based on its world type. */
 	virtual void CheckDeathCondition();
@@ -117,6 +132,12 @@ protected:
 
 	/** Called when SpiritHP reaches zero. */
 	void OnSpiritDestroyed();
+
+	/** Placeholder attack: applies GE_CorruptionDamage to nearby Soul. */
+	void Server_EnemyAttackSoul();
+
+	/** Timer handle for the placeholder attack. */
+	FTimerHandle AttackSoulTimerHandle;
 
 	// -- Replication --------------------------------------------------------
 

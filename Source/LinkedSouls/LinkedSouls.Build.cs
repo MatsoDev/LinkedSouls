@@ -30,6 +30,7 @@ public class LinkedSouls : ModuleRules
 
 		PublicIncludePaths.AddRange(new string[] {
 			"LinkedSouls",
+			"LinkedSouls/Animation",
 			"LinkedSouls/DualWorld",
 			"LinkedSouls/Player",
 			"LinkedSouls/SoulEnergy",
