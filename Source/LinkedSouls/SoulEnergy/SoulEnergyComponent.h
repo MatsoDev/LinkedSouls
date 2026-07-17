@@ -116,7 +116,7 @@ public:
 
 	/** Regeneration per second while both players are alive (prompt spec: +2/sec). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Soul Energy|Config|Regen", meta = (ClampMin = "0.0", ClampMax = "100.0"))
-	float BaseRegenRate = 2.0f;
+	float BaseRegenRate = 5.0f;
 
 	/** Continuous drain per second while at least one ability is active. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Soul Energy|Config|Drain", meta = (ClampMin = "0.0", ClampMax = "100.0"))

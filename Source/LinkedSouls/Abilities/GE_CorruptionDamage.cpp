@@ -12,6 +12,6 @@ ULS_GE_CorruptionDamage::ULS_GE_CorruptionDamage(const FObjectInitializer& Objec
 	FGameplayModifierInfo CorruptionMod;
 	CorruptionMod.Attribute = ULinkedSoulsAttributeSet::GetCorruptionAttribute();
 	CorruptionMod.ModifierOp = EGameplayModOp::Additive;
-	CorruptionMod.ModifierMagnitude = FScalableFloat(15.0f);
+	CorruptionMod.ModifierMagnitude = FScalableFloat(8.0f);
 	Modifiers.Add(CorruptionMod);
 }

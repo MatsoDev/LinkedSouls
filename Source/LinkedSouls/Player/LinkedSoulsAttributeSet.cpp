@@ -64,8 +64,17 @@ void ULinkedSoulsAttributeSet::PostGameplayEffectExecute(const FGameplayEffectMo
 
 	// death detection
 	AActor* Owner = GetOwningActor();
-	if (!Owner || Owner->IsA<ABaseEnemy>())
+	if (!Owner)
 	{
+		return;
+	}
+
+	if (ABaseEnemy* Enemy = Cast<ABaseEnemy>(Owner))
+	{
+		if (Data.EvaluatedData.Attribute == GetHealthAttribute())
+		{
+			Enemy->OnHealthUpdated(GetHealth(), GetMaxHealth());
+		}
 		return;
 	}
 

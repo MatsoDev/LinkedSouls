@@ -60,6 +60,12 @@ ASoulCharacter::ASoulCharacter()
 
 	// Soul drifts - low gravity for ethereal movement
 	GetCharacterMovement()->GravityScale = 0.3f;
+	GetCharacterMovement()->JumpZVelocity = 150.f;
+	GetCharacterMovement()->AirControl = 0.8f;
+	GetCharacterMovement()->SetMovementMode(EMovementMode::MOVE_Walking);
+
+	// Rotation: face movement direction
+	bUseControllerRotationYaw = false;
 
 	// Pawn profile: blocks world static (floor, walls) so Soul stands on solid ground.
 	// If spirit-phasing through enemies is needed later, create a custom collision
@@ -72,14 +78,14 @@ ASoulCharacter::ASoulCharacter()
 	ElementComponent->SetActiveElement(ELinkedSoulsElement::Light);
 
 	// Assign the Manny animation blueprint so the mesh plays locomotion
-	static ConstructorHelpers::FClassFinder<UAnimInstance> ABP_Mannequin(TEXT("/Game/Characters/Mannequins/Animations/ABP_Manny.ABP_Manny_C"));
-	if (ABP_Mannequin.Succeeded())
+	static ConstructorHelpers::FClassFinder<UAnimInstance> ABP_Unarmed(TEXT("/Game/Characters/Mannequins/Anims/Unarmed/ABP_Unarmed.ABP_Unarmed_C"));
+	if (ABP_Unarmed.Succeeded())
 	{
-		GetMesh()->SetAnimInstanceClass(ABP_Mannequin.Class);
+		GetMesh()->SetAnimInstanceClass(ABP_Unarmed.Class);
 	}
 	else
 	{
-		UE_LOG(LogTemp, Error, TEXT("SoulCharacter: Failed to load ABP_Manny - T-pose will persist"));
+		UE_LOG(LogTemp, Error, TEXT("SoulCharacter: Failed to load ABP_Unarmed - T-pose will persist"));
 	}
 
 	// Load Soul-specific Input Actions
@@ -125,8 +131,9 @@ void ASoulCharacter::AddInputContexts()
 		TEXT("/Game/Input/IMC_Soul.IMC_Soul"));
 	if (IMC)
 	{
-		Subsystem->AddMappingContext(IMC, 0);
-		UE_LOG(LogTemp, Warning, TEXT("SoulCharacter: IMC_Soul added"));
+		// Priority 2 > MouseLook(1) so Soul actions win cleanly
+		Subsystem->AddMappingContext(IMC, 2);
+		UE_LOG(LogTemp, Warning, TEXT("SoulCharacter: IMC_Soul added (priority 2, no IMC_Default stack)"));
 	}
 	else
 	{
@@ -195,7 +202,7 @@ void ASoulCharacter::OnSpiritAttack()
 void ASoulCharacter::Server_SpiritAttack_Implementation()
 {
 	USoulEnergyComponent* SEC = USoulEnergyComponent::GetSoulEnergyComponent(this);
-	if (!SEC || !SEC->ConsumeSoulEnergy(20.0f))
+	if (!SEC || !SEC->ConsumeSoulEnergy(15.0f))
 	{
 		UE_LOG(LogTemp, Warning, TEXT("SoulCharacter: SpiritAttack blocked — insufficient SoulEnergy"));
 		return;
@@ -270,7 +277,7 @@ void ASoulCharacter::OnSoulPulse()
 void ASoulCharacter::Server_SoulPulse_Implementation()
 {
 	USoulEnergyComponent* SEC = USoulEnergyComponent::GetSoulEnergyComponent(this);
-	if (!SEC || !SEC->ConsumeSoulEnergy(30.0f))
+	if (!SEC || !SEC->ConsumeSoulEnergy(20.0f))
 	{
 		UE_LOG(LogTemp, Warning, TEXT("SoulCharacter: SoulPulse blocked — insufficient SoulEnergy"));
 		return;

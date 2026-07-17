@@ -50,20 +50,23 @@ ABodyCharacter::ABodyCharacter()
 		}
 	}
 
+	// Rotation: face movement direction
+	bUseControllerRotationYaw = false;
+
 	// ElementComponent — Body uses physical elements
 	ElementComponent = CreateDefaultSubobject<UElementComponent>(TEXT("ElementComponent"));
 	ElementComponent->AllowedElements = { ELinkedSoulsElement::Fire, ELinkedSoulsElement::Water, ELinkedSoulsElement::Earth };
 	ElementComponent->SetActiveElement(ELinkedSoulsElement::Fire);
 
 	// Assign the Manny animation blueprint so the mesh plays locomotion
-	static ConstructorHelpers::FClassFinder<UAnimInstance> ABP_Mannequin(TEXT("/Game/Characters/Mannequins/Animations/ABP_Manny.ABP_Manny_C"));
-	if (ABP_Mannequin.Succeeded())
+	static ConstructorHelpers::FClassFinder<UAnimInstance> ABP_Unarmed(TEXT("/Game/Characters/Mannequins/Anims/Unarmed/ABP_Unarmed.ABP_Unarmed_C"));
+	if (ABP_Unarmed.Succeeded())
 	{
-		GetMesh()->SetAnimInstanceClass(ABP_Mannequin.Class);
+		GetMesh()->SetAnimInstanceClass(ABP_Unarmed.Class);
 	}
 	else
 	{
-		UE_LOG(LogTemp, Error, TEXT("BodyCharacter: Failed to load ABP_Manny - T-pose will persist"));
+		UE_LOG(LogTemp, Error, TEXT("BodyCharacter: Failed to load ABP_Unarmed - T-pose will persist"));
 	}
 
 	// Load Body-specific Input Actions
@@ -100,8 +103,9 @@ void ABodyCharacter::AddInputContexts()
 		TEXT("/Game/Input/IMC_Body.IMC_Body"));
 	if (IMC)
 	{
-		Subsystem->AddMappingContext(IMC, 0);
-		UE_LOG(LogTemp, Warning, TEXT("BodyCharacter: IMC_Body added"));
+		// Priority 2 > MouseLook(1) so Body actions win cleanly
+		Subsystem->AddMappingContext(IMC, 2);
+		UE_LOG(LogTemp, Warning, TEXT("BodyCharacter: IMC_Body added (priority 2, no IMC_Default stack)"));
 	}
 	else
 	{
@@ -311,6 +315,14 @@ void ABodyCharacter::PerformMeleeAttack()
 			UAbilitySystemComponent* SoulASC = Soul->GetAbilitySystemComponent();
 			if (SoulASC)
 			{
+				// Don't re-apply / spam while synergy is already active
+				static const FGameplayTag SynergyTag =
+					FGameplayTag::RequestGameplayTag(FName("Linked.Synergy.Active"));
+				if (SoulASC->HasMatchingGameplayTag(SynergyTag))
+				{
+					return;
+				}
+
 				FGameplayEffectContextHandle SyncCtx = ASC->MakeEffectContext();
 				SyncCtx.AddInstigator(this, this);
 

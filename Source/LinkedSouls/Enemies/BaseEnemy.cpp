@@ -3,21 +3,39 @@
 
 #include "Enemies/BaseEnemy.h"
 #include "Player/LinkedSoulsAttributeSet.h"
+#include "Player/LinkedSoulsPlayerCharacter.h"
+#include "Player/BodyCharacter.h"
 #include "Player/SoulCharacter.h"
+#include "UI/EnemyHealthBarWidget.h"
+#include "AI/LinkedSoulsAIController.h"
 #include "AbilitySystemComponent.h"
 #include "Abilities/GE_CorruptionDamage.h"
+#include "Abilities/GE_BodyMeleeDamage.h"
+#include "BehaviorTree/BehaviorTree.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Engine/SkeletalMesh.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/WidgetComponent.h"
+#include "Components/CapsuleComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "Engine/Engine.h"
-#include "Engine/OverlapResult.h"
+#include "Blueprint/UserWidget.h"
 
 ABaseEnemy::ABaseEnemy()
 {
 	bReplicates = true;
 
 	PrimaryActorTick.bCanEverTick = false;
+
+	AIControllerClass = ALinkedSoulsAIController::StaticClass();
+	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
+
+	static ConstructorHelpers::FObjectFinder<UBehaviorTree> BTAsset(
+		TEXT("/Game/AI/BT_LinkedSoulsEnemy.BT_LinkedSoulsEnemy"));
+	if (BTAsset.Succeeded())
+	{
+		BehaviorTree = BTAsset.Object;
+	}
 
 	CurrentPhysicalHP = PhysicalHP;
 	CurrentSpiritHP = SpiritHP;
@@ -52,11 +70,25 @@ ABaseEnemy::ABaseEnemy()
 		}
 	}
 
+	// Manny faces +Y; capsule forward is +X — yaw -90 so mesh faces movement direction
+	GetMesh()->SetRelativeLocationAndRotation(
+		FVector(0.f, 0.f, -96.f),
+		FRotator(0.f, -90.f, 0.f));
+
 	AbilitySystemComponent = CreateDefaultSubobject<UAbilitySystemComponent>(TEXT("AbilitySystemComponent"));
 	AbilitySystemComponent->SetIsReplicated(true);
 	AbilitySystemComponent->SetReplicationMode(EGameplayEffectReplicationMode::Minimal);
 
 	AttributeSet = CreateDefaultSubobject<ULinkedSoulsAttributeSet>(TEXT("AttributeSet"));
+
+	HealthBarComponent = CreateDefaultSubobject<UWidgetComponent>(TEXT("HealthBar"));
+	HealthBarComponent->SetupAttachment(RootComponent);
+	HealthBarComponent->SetRelativeLocation(FVector(0.f, 0.f, 120.f));
+	HealthBarComponent->SetWidgetSpace(EWidgetSpace::Screen);
+	HealthBarComponent->SetDrawSize(FVector2D(100.f, 15.f));
+	HealthBarComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	EnemyHealthBarClass = UEnemyHealthBarWidget::StaticClass();
+	HealthBarComponent->SetWidgetClass(UEnemyHealthBarWidget::StaticClass());
 }
 
 // -- Lifecycle ---------------------------------------------------------------
@@ -68,12 +100,45 @@ void ABaseEnemy::BeginPlay()
 	CurrentPhysicalHP = PhysicalHP;
 	CurrentSpiritHP = SpiritHP;
 
+	// Keep placeholder enemies out of the spawn cluster unless already placed far away
+	if (HasAuthority() && GetActorLocation().Size2D() < 100.f)
+	{
+		SetActorLocation(FVector(0.f, 2000.f, 100.f));
+	}
+
+	if (EnemyHealthBarClass && HealthBarComponent)
+	{
+		HealthBarComponent->SetWidgetClass(EnemyHealthBarClass);
+	}
+	OnHealthUpdated(CurrentPhysicalHP, MaxPhysicalHP);
+
 	if (HasAuthority())
 	{
 		InitEnemyAbilitySystem();
 
-		GetWorldTimerManager().SetTimer(AttackSoulTimerHandle, this,
-			&ABaseEnemy::Server_EnemyAttackSoul, 2.0f, true);
+		if (!BehaviorTree)
+		{
+			BehaviorTree = LoadObject<UBehaviorTree>(nullptr,
+				TEXT("/Game/AI/BT_LinkedSoulsEnemy.BT_LinkedSoulsEnemy"));
+		}
+
+		// Fallback if OnPossess ran before BT asset was available
+		if (BehaviorTree)
+		{
+			if (ALinkedSoulsAIController* AIC = Cast<ALinkedSoulsAIController>(GetController()))
+			{
+				AIC->StartBehaviorTree(BehaviorTree);
+			}
+			else
+			{
+				UE_LOG(LogTemp, Error, TEXT("BaseEnemy [%s]: Controller is not LinkedSoulsAIController (%s)"),
+					*GetName(), GetController() ? *GetController()->GetClass()->GetName() : TEXT("null"));
+			}
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("BaseEnemy [%s]: BehaviorTree asset missing"), *GetName());
+		}
 	}
 }
 
@@ -109,6 +174,7 @@ void ABaseEnemy::TakePhysicalDamage(float Amount, AActor* DamageInstigator)
 	CurrentPhysicalHP = FMath::Clamp(CurrentPhysicalHP - Amount, 0.0f, MaxPhysicalHP);
 
 	OnPhysicalDamage.Broadcast(this, Amount);
+	OnHealthUpdated(CurrentPhysicalHP, MaxPhysicalHP);
 
 	if (CurrentPhysicalHP <= 0.0f)
 	{
@@ -158,48 +224,68 @@ void ABaseEnemy::OnSpiritDestroyed()
 	UE_LOG(LogTemp, Warning, TEXT("BaseEnemy [%s]: Spirit destroyed — Body can now finish it"), *GetName());
 }
 
-// -- Placeholder attack -------------------------------------------------------
-
-void ABaseEnemy::Server_EnemyAttackSoul()
+void ABaseEnemy::PerformAttack(ALinkedSoulsPlayerCharacter* Target)
 {
-	if (!HasAuthority() || !AbilitySystemComponent)
+	if (!HasAuthority() || !AbilitySystemComponent || !Target)
 	{
 		return;
 	}
 
-	TArray<FOverlapResult> Overlaps;
-	FCollisionShape SphereShape = FCollisionShape::MakeSphere(200.0f);
-	FCollisionQueryParams QueryParams;
-	QueryParams.AddIgnoredActor(this);
-
-	GetWorld()->OverlapMultiByObjectType(Overlaps, GetActorLocation(), FQuat::Identity,
-		FCollisionObjectQueryParams(ECC_TO_BITFIELD(ECC_Pawn)), SphereShape, QueryParams);
-
-	for (const FOverlapResult& Overlap : Overlaps)
+	UAbilitySystemComponent* TargetASC = Target->GetAbilitySystemComponent();
+	if (!TargetASC)
 	{
-		ASoulCharacter* Soul = Cast<ASoulCharacter>(Overlap.GetActor());
-		if (!Soul)
+		return;
+	}
+
+	FGameplayEffectContextHandle EffectContext = AbilitySystemComponent->MakeEffectContext();
+	EffectContext.AddInstigator(this, this);
+
+	TSubclassOf<UGameplayEffect> DamageGE = nullptr;
+	if (Cast<ASoulCharacter>(Target))
+	{
+		DamageGE = ULS_GE_CorruptionDamage::StaticClass();
+	}
+	else if (Cast<ABodyCharacter>(Target))
+	{
+		DamageGE = ULS_GE_BodyMeleeDamage::StaticClass();
+	}
+
+	if (!DamageGE)
+	{
+		return;
+	}
+
+	const FGameplayEffectSpecHandle SpecHandle =
+		AbilitySystemComponent->MakeOutgoingSpec(DamageGE, 1.0f, EffectContext);
+	if (SpecHandle.Data.IsValid())
+	{
+		AbilitySystemComponent->ApplyGameplayEffectSpecToTarget(*SpecHandle.Data.Get(), TargetASC);
+		UE_LOG(LogTemp, Warning, TEXT("BaseEnemy: Attacked [%s]"), *Target->GetName());
+	}
+}
+
+void ABaseEnemy::OnHealthUpdated(float Current, float Max)
+{
+	if (!HealthBarComponent)
+	{
+		return;
+	}
+
+	UEnemyHealthBarWidget* Bar = Cast<UEnemyHealthBarWidget>(HealthBarComponent->GetUserWidgetObject());
+	if (!Bar)
+	{
+		// Widget may not be ready yet on first frame — force create
+		if (EnemyHealthBarClass)
 		{
-			continue;
+			HealthBarComponent->SetWidgetClass(EnemyHealthBarClass);
+			HealthBarComponent->InitWidget();
+			Bar = Cast<UEnemyHealthBarWidget>(HealthBarComponent->GetUserWidgetObject());
 		}
+	}
 
-		UAbilitySystemComponent* SoulASC = Soul->GetAbilitySystemComponent();
-		if (!SoulASC)
-		{
-			continue;
-		}
-
-		FGameplayEffectContextHandle EffectContext = AbilitySystemComponent->MakeEffectContext();
-		EffectContext.AddInstigator(this, this);
-
-		const FGameplayEffectSpecHandle SpecHandle = AbilitySystemComponent->MakeOutgoingSpec(
-			ULS_GE_CorruptionDamage::StaticClass(), 1.0f, EffectContext);
-
-		if (SpecHandle.Data.IsValid())
-		{
-			AbilitySystemComponent->ApplyGameplayEffectSpecToTarget(*SpecHandle.Data.Get(), SoulASC);
-			UE_LOG(LogTemp, Warning, TEXT("BaseEnemy [%s]: Applied +15 Corruption to Soul"), *GetName());
-		}
+	if (Bar)
+	{
+		Bar->UpdateHealth(Current, Max);
 	}
 }
 
@@ -247,6 +333,15 @@ void ABaseEnemy::Die()
 	CurrentState = EEnemyState::Dead;
 
 	OnEnemyDied.Broadcast();
+
+	if (ALinkedSoulsAIController* AIC = Cast<ALinkedSoulsAIController>(GetController()))
+	{
+		AIC->StopMovement();
+		if (AIC->BehaviorTreeComp)
+		{
+			AIC->BehaviorTreeComp->StopTree();
+		}
+	}
 
 	UE_LOG(LogTemp, Warning, TEXT("BaseEnemy [%s]: DIED"), *GetName());
 

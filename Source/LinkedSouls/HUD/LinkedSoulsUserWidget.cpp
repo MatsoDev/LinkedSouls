@@ -2,134 +2,209 @@
 #include "Components/ProgressBar.h"
 #include "Components/Image.h"
 #include "Components/TextBlock.h"
+#include "Components/Overlay.h"
+#include "Components/OverlaySlot.h"
+#include "Components/VerticalBox.h"
+#include "Components/VerticalBoxSlot.h"
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
 #include "Blueprint/WidgetTree.h"
+#include "Engine/Engine.h"
 
 ULinkedSoulsUserWidget::ULinkedSoulsUserWidget(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────
-
-UProgressBar* ULinkedSoulsUserWidget::MakeBar(const FLinearColor& FillColor)
-{
-	UProgressBar* Bar = WidgetTree->ConstructWidget<UProgressBar>(UProgressBar::StaticClass());
-	FProgressBarStyle Style = Bar->GetWidgetStyle();
-	FSlateBrush FillBrush;
-	FillBrush.DrawAs = ESlateBrushDrawType::Box;
-	FillBrush.TintColor = FillColor;
-	Style.SetBackgroundImage(FSlateBrush());
-	Style.SetFillImage(FillBrush);
-	Bar->SetWidgetStyle(Style);
-	Bar->SetPercent(1.0f);
-	Bar->SetRenderTransformPivot(FVector2D(0.5f, 0.5f));
-	return Bar;
-}
-
-UTextBlock* ULinkedSoulsUserWidget::MakeLabel(const FString& DefaultText)
-{
-	UTextBlock* Label = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
-	Label->SetText(FText::FromString(DefaultText));
-	Label->SetColorAndOpacity(FSlateColor(FLinearColor::White));
-	FSlateFontInfo FontInfo = Label->GetFont();
-	FontInfo.Size = 14;
-	Label->SetFont(FontInfo);
-	return Label;
-}
-
-// ── Layout ───────────────────────────────────────────────────────────────
-
 void ULinkedSoulsUserWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
 
-	// If BindWidget slots came from a Blueprint child, use those instead
 	if (!HealthBar && !SoulEnergyBar && !CorruptionBar)
 	{
-		CreateProgrammaticLayout();
+		BuildHUD();
 	}
+
+	SetVisibility(ESlateVisibility::Visible);
+
+	if (SynergyIndicator)
+	{
+		SynergyIndicator->SetVisibility(ESlateVisibility::Collapsed);
+	}
+	if (WorldIndicator)
+	{
+		WorldIndicator->SetVisibility(ESlateVisibility::Collapsed);
+	}
+	if (HealthLabel)
+	{
+		HealthLabel->SetVisibility(ESlateVisibility::Collapsed);
+	}
+	if (SoulEnergyLabel)
+	{
+		SoulEnergyLabel->SetVisibility(ESlateVisibility::Collapsed);
+	}
+	if (CorruptionLabel)
+	{
+		CorruptionLabel->SetVisibility(ESlateVisibility::Collapsed);
+	}
+
+	UpdateHealthBar(CurrentHealth, MaxHealth);
+	UpdateSoulEnergyBar(CurrentSoulEnergy, MaxSoulEnergy);
+	UpdateCorruptionBar(CurrentCorruption, MaxCorruption);
 }
 
-void ULinkedSoulsUserWidget::CreateProgrammaticLayout()
+static UProgressBar* CreateBar(UWidgetTree* Tree, const FLinearColor& FillColor)
 {
-	// Root canvas — fills entire screen
-	UCanvasPanel* Root = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass());
-	WidgetTree->RootWidget = Root;
+	UProgressBar* Bar = Tree->ConstructWidget<UProgressBar>(UProgressBar::StaticClass());
 
-	// ── Health bar (top-left) ──
-	HealthBar = MakeBar(FLinearColor(0.8f, 0.1f, 0.1f)); // red
-	HealthLabel = MakeLabel(TEXT("HP: 100 / 100"));
+	FProgressBarStyle Style;
 
-	UCanvasPanelSlot* HealthSlot = Root->AddChildToCanvas(HealthBar);
-	HealthSlot->SetAutoSize(true);
-	HealthSlot->SetAnchors(FAnchors(0.0f, 0.0f, 0.0f, 0.0f));
-	HealthSlot->SetPosition(FVector2D(20.0f, 20.0f));
-	HealthSlot->SetSize(FVector2D(260.0f, 22.0f));
+	FSlateBrush BgBrush;
+	BgBrush.DrawAs = ESlateBrushDrawType::Box;
+	BgBrush.TintColor = FLinearColor(0.08f, 0.08f, 0.08f, 0.85f);
+	Style.SetBackgroundImage(BgBrush);
 
-	UCanvasPanelSlot* HealthLabelSlot = Root->AddChildToCanvas(HealthLabel);
-	HealthLabelSlot->SetAutoSize(true);
-	HealthLabelSlot->SetAnchors(FAnchors(0.0f, 0.0f, 0.0f, 0.0f));
-	HealthLabelSlot->SetPosition(FVector2D(24.0f, 21.0f));
+	FSlateBrush FillBrush;
+	FillBrush.DrawAs = ESlateBrushDrawType::Box;
+	FillBrush.TintColor = FillColor;
+	Style.SetFillImage(FillBrush);
 
-	// ── Soul Energy bar (top-center) ──
-	SoulEnergyBar = MakeBar(FLinearColor(0.1f, 0.4f, 0.9f)); // blue
-	SoulEnergyLabel = MakeLabel(TEXT("Energy: 50 / 100"));
+	Bar->SetWidgetStyle(Style);
+	Bar->SetPercent(1.0f);
+	Bar->SetRenderTransformPivot(FVector2D(0.0f, 0.5f));
 
-	UCanvasPanelSlot* EnergySlot = Root->AddChildToCanvas(SoulEnergyBar);
-	EnergySlot->SetAutoSize(true);
-	EnergySlot->SetAnchors(FAnchors(0.5f, 0.0f, 0.5f, 0.0f));
-	EnergySlot->SetPosition(FVector2D(-130.0f, 20.0f));
-	EnergySlot->SetSize(FVector2D(260.0f, 22.0f));
+	return Bar;
+}
 
-	UCanvasPanelSlot* EnergyLabelSlot = Root->AddChildToCanvas(SoulEnergyLabel);
-	EnergyLabelSlot->SetAutoSize(true);
-	EnergyLabelSlot->SetAnchors(FAnchors(0.5f, 0.0f, 0.5f, 0.0f));
-	EnergyLabelSlot->SetPosition(FVector2D(-124.0f, 21.0f));
+static UTextBlock* CreateLabel(UWidgetTree* Tree, const FString& Text)
+{
+	UTextBlock* Label = Tree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
+	Label->SetText(FText::FromString(Text));
+	Label->SetColorAndOpacity(FSlateColor(FLinearColor::White));
+	FSlateFontInfo FontInfo = Label->GetFont();
+	FontInfo.Size = 13;
+	FontInfo.OutlineSettings.OutlineSize = 1;
+	FontInfo.OutlineSettings.OutlineColor = FLinearColor::Black;
+	Label->SetFont(FontInfo);
+	Label->SetJustification(ETextJustify::Center);
+	return Label;
+}
 
-	// ── Corruption bar (top-right) — hidden for Body ──
-	CorruptionBar = MakeBar(FLinearColor(0.6f, 0.1f, 0.7f)); // purple
-	CorruptionLabel = MakeLabel(TEXT("Corruption: 0 / 100"));
+static UOverlay* MakeBarOverlay(UWidgetTree* Tree, UProgressBar* Bar, UTextBlock* Label)
+{
+	UOverlay* Overlay = Tree->ConstructWidget<UOverlay>(UOverlay::StaticClass());
 
-	UCanvasPanelSlot* CorruptSlot = Root->AddChildToCanvas(CorruptionBar);
-	CorruptSlot->SetAutoSize(true);
-	CorruptSlot->SetAnchors(FAnchors(1.0f, 0.0f, 1.0f, 0.0f));
-	CorruptSlot->SetPosition(FVector2D(-280.0f, 20.0f));
-	CorruptSlot->SetSize(FVector2D(260.0f, 22.0f));
+	UOverlaySlot* BarSlot = Cast<UOverlaySlot>(Overlay->AddChild(Bar));
+	BarSlot->SetHorizontalAlignment(EHorizontalAlignment::HAlign_Fill);
+	BarSlot->SetVerticalAlignment(EVerticalAlignment::VAlign_Fill);
 
-	UCanvasPanelSlot* CorruptLabelSlot = Root->AddChildToCanvas(CorruptionLabel);
-	CorruptLabelSlot->SetAutoSize(true);
-	CorruptLabelSlot->SetAnchors(FAnchors(1.0f, 0.0f, 1.0f, 0.0f));
-	CorruptLabelSlot->SetPosition(FVector2D(-276.0f, 21.0f));
+	UOverlaySlot* LabelSlot = Cast<UOverlaySlot>(Overlay->AddChild(Label));
+	LabelSlot->SetHorizontalAlignment(EHorizontalAlignment::HAlign_Center);
+	LabelSlot->SetVerticalAlignment(EVerticalAlignment::VAlign_Center);
 
-	// ── Synergy indicator ──
-	SynergyIndicator = NewObject<UImage>(this);
-	FSlateBrush SynBrush;
-	SynBrush.DrawAs = ESlateBrushDrawType::Box;
-	SynBrush.TintColor = FLinearColor(1.0f, 0.8f, 0.0f); // gold
-	SynergyIndicator->SetBrush(SynBrush);
-	SynergyIndicator->SetDesiredSizeOverride(FVector2D(32.0f, 32.0f));
+	return Overlay;
+}
 
-	UCanvasPanelSlot* SynergySlot = Root->AddChildToCanvas(SynergyIndicator);
-	SynergySlot->SetAutoSize(true);
-	SynergySlot->SetAnchors(FAnchors(0.5f, 0.0f, 0.5f, 0.0f));
-	SynergySlot->SetPosition(FVector2D(100.0f, 20.0f));
-	SynergySlot->SetSize(FVector2D(32.0f, 32.0f));
+void ULinkedSoulsUserWidget::BuildHUD()
+{
+	UWidgetTree* Tree = WidgetTree;
+	if (!Tree)
+	{
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(-1, 10.0f, FColor::Red,
+				TEXT("ULinkedSoulsUserWidget: WidgetTree is null!"));
+		}
+		return;
+	}
 
-	// ── World indicator ──
-	WorldIndicator = NewObject<UImage>(this);
-	FSlateBrush WorldBrush;
-	WorldBrush.DrawAs = ESlateBrushDrawType::Box;
-	WorldBrush.TintColor = FLinearColor(0.2f, 0.8f, 1.0f, 0.6f); // cyan
-	WorldIndicator->SetBrush(WorldBrush);
-	WorldIndicator->SetDesiredSizeOverride(FVector2D(32.0f, 32.0f));
+	UCanvasPanel* Canvas = Tree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("RootCanvas"));
+	Tree->RootWidget = Canvas;
 
-	UCanvasPanelSlot* WorldSlot = Root->AddChildToCanvas(WorldIndicator);
-	WorldSlot->SetAutoSize(true);
-	WorldSlot->SetAnchors(FAnchors(0.5f, 0.0f, 0.5f, 0.0f));
-	WorldSlot->SetPosition(FVector2D(140.0f, 20.0f));
-	WorldSlot->SetSize(FVector2D(32.0f, 32.0f));
+	VBox = Tree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
+	UCanvasPanelSlot* CanvasSlot = Cast<UCanvasPanelSlot>(Canvas->AddChild(VBox));
+	if (CanvasSlot)
+	{
+		CanvasSlot->SetAnchors(FAnchors(0.0f, 0.0f, 0.0f, 0.0f));
+		CanvasSlot->SetPosition(FVector2D(20.0f, 20.0f));
+		CanvasSlot->SetSize(FVector2D(300.0f, 400.0f));
+		CanvasSlot->SetAutoSize(true);
+	}
+
+	// ── Health ──
+	HealthBar = CreateBar(Tree, FLinearColor(0.8f, 0.15f, 0.15f));
+	HealthLabel = CreateLabel(Tree, TEXT("HP: 100 / 100"));
+
+	UOverlay* HealthOverlay = MakeBarOverlay(Tree, HealthBar, HealthLabel);
+	UVerticalBoxSlot* HealthVSlot = Cast<UVerticalBoxSlot>(VBox->AddChild(HealthOverlay));
+	if (HealthVSlot)
+	{
+		HealthVSlot->SetPadding(FMargin(20.0f, 20.0f, 0.0f, 2.0f));
+		HealthVSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+	}
+
+	// ── Soul Energy ──
+	SoulEnergyBar = CreateBar(Tree, FLinearColor(0.15f, 0.45f, 0.9f));
+	SoulEnergyLabel = CreateLabel(Tree, TEXT("Energy: 50 / 100"));
+
+	UOverlay* EnergyOverlay = MakeBarOverlay(Tree, SoulEnergyBar, SoulEnergyLabel);
+	UVerticalBoxSlot* EnergyVSlot = Cast<UVerticalBoxSlot>(VBox->AddChild(EnergyOverlay));
+	if (EnergyVSlot)
+	{
+		EnergyVSlot->SetPadding(FMargin(20.0f, 2.0f, 0.0f, 2.0f));
+		EnergyVSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+	}
+
+	// ── Corruption ──
+	CorruptionBar = CreateBar(Tree, FLinearColor(0.6f, 0.1f, 0.7f));
+	CorruptionLabel = CreateLabel(Tree, TEXT("Corruption: 0 / 100"));
+
+	UOverlay* CorruptOverlay = MakeBarOverlay(Tree, CorruptionBar, CorruptionLabel);
+	UVerticalBoxSlot* CorruptVSlot = Cast<UVerticalBoxSlot>(VBox->AddChild(CorruptOverlay));
+	if (CorruptVSlot)
+	{
+		CorruptVSlot->SetPadding(FMargin(20.0f, 2.0f, 0.0f, 2.0f));
+		CorruptVSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+	}
+
+	// ── Indicators (synergy + world) ──
+	SynergyIndicator = Tree->ConstructWidget<UImage>(UImage::StaticClass());
+	{
+		FSlateBrush Brush;
+		Brush.DrawAs = ESlateBrushDrawType::Box;
+		Brush.TintColor = FLinearColor(1.0f, 0.85f, 0.0f);
+		SynergyIndicator->SetBrush(Brush);
+		SynergyIndicator->SetDesiredSizeOverride(FVector2D(28.0f, 28.0f));
+		SynergyIndicator->SetVisibility(ESlateVisibility::Collapsed);
+	}
+	UVerticalBoxSlot* SynergyVSlot = Cast<UVerticalBoxSlot>(VBox->AddChild(SynergyIndicator));
+	if (SynergyVSlot)
+	{
+		SynergyVSlot->SetPadding(FMargin(20.0f, 6.0f, 0.0f, 2.0f));
+		SynergyVSlot->SetSize(FSlateChildSize(ESlateSizeRule::Automatic));
+	}
+
+	WorldIndicator = Tree->ConstructWidget<UImage>(UImage::StaticClass());
+	{
+		FSlateBrush Brush;
+		Brush.DrawAs = ESlateBrushDrawType::Box;
+		Brush.TintColor = FLinearColor(0.2f, 0.8f, 1.0f, 0.7f);
+		WorldIndicator->SetBrush(Brush);
+		WorldIndicator->SetDesiredSizeOverride(FVector2D(28.0f, 28.0f));
+		WorldIndicator->SetVisibility(ESlateVisibility::Collapsed);
+	}
+	UVerticalBoxSlot* WorldVSlot = Cast<UVerticalBoxSlot>(VBox->AddChild(WorldIndicator));
+	if (WorldVSlot)
+	{
+		WorldVSlot->SetPadding(FMargin(20.0f, 2.0f, 0.0f, 2.0f));
+		WorldVSlot->SetSize(FSlateChildSize(ESlateSizeRule::Automatic));
+	}
+
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Green,
+			TEXT("HUD: Layout built"));
+	}
 }
 
 // ── Update functions ─────────────────────────────────────────────────────
@@ -145,7 +220,8 @@ void ULinkedSoulsUserWidget::UpdateHealthBar(float Current, float Max)
 	}
 	if (HealthLabel)
 	{
-		HealthLabel->SetText(FText::FromString(FString::Printf(TEXT("HP: %.0f / %.0f"), Current, Max)));
+		HealthLabel->SetText(FText::FromString(
+			FString::Printf(TEXT("HP: %.0f / %.0f"), Current, Max)));
 	}
 
 	OnHealthUpdated(Current, Max);
@@ -162,7 +238,8 @@ void ULinkedSoulsUserWidget::UpdateSoulEnergyBar(float Current, float Max)
 	}
 	if (SoulEnergyLabel)
 	{
-		SoulEnergyLabel->SetText(FText::FromString(FString::Printf(TEXT("Energy: %.0f / %.0f"), Current, Max)));
+		SoulEnergyLabel->SetText(FText::FromString(
+			FString::Printf(TEXT("Energy: %.0f / %.0f"), Current, Max)));
 	}
 
 	OnSoulEnergyUpdated(Current, Max);
@@ -179,7 +256,8 @@ void ULinkedSoulsUserWidget::UpdateCorruptionBar(float Current, float Max)
 	}
 	if (CorruptionLabel)
 	{
-		CorruptionLabel->SetText(FText::FromString(FString::Printf(TEXT("Corruption: %.0f / %.0f"), Current, Max)));
+		CorruptionLabel->SetText(FText::FromString(
+			FString::Printf(TEXT("Corruption: %.0f / %.0f"), Current, Max)));
 	}
 
 	OnCorruptionUpdated(Current, Max);
@@ -208,9 +286,9 @@ void ULinkedSoulsUserWidget::UpdateWorldIndicator(bool bInSpiritWorld)
 {
 	if (WorldIndicator)
 	{
-		WorldIndicator->SetVisibility(bInSpiritWorld ? ESlateVisibility::Visible : ESlateVisibility::Hidden);
+		WorldIndicator->SetVisibility(
+			bInSpiritWorld ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
 	}
-
 	OnWorldIndicatorUpdated(bInSpiritWorld);
 }
 
@@ -218,6 +296,7 @@ void ULinkedSoulsUserWidget::SetSynergyActive(bool bActive)
 {
 	if (SynergyIndicator)
 	{
-		SynergyIndicator->SetVisibility(bActive ? ESlateVisibility::Visible : ESlateVisibility::Hidden);
+		SynergyIndicator->SetVisibility(
+			bActive ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
 	}
 }

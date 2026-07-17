@@ -8,9 +8,18 @@
 
 ALinkedSoulsHUD::ALinkedSoulsHUD()
 {
-	// Default widget class — a pure C++ widget with no Blueprint child.
-	// Override in a Blueprint HUD subclass to get UMG layout with BindWidget bindings.
-	HUDWidgetClass = ULinkedSoulsUserWidget::StaticClass();
+	static ConstructorHelpers::FClassFinder<ULinkedSoulsUserWidget> WidgetBPClass(
+		TEXT("/Game/Blueprints/WBP_LinkedSoulsHUD.WBP_LinkedSoulsHUD_C"));
+	if (WidgetBPClass.Succeeded())
+	{
+		HUDWidgetClass = WidgetBPClass.Class;
+		UE_LOG(LogTemp, Warning, TEXT("LinkedSoulsHUD: WBP_LinkedSoulsHUD loaded ✓"));
+	}
+	else
+	{
+		HUDWidgetClass = ULinkedSoulsUserWidget::StaticClass();
+		UE_LOG(LogTemp, Error, TEXT("LinkedSoulsHUD: WBP NOT FOUND — fallback to C++ widget"));
+	}
 }
 
 void ALinkedSoulsHUD::BeginPlay()
@@ -35,7 +44,9 @@ void ALinkedSoulsHUD::BeginPlay()
 		return;
 	}
 
-	HUDWidget->AddToViewport();
+	HUDWidget->SetVisibility(ESlateVisibility::Visible);
+	HUDWidget->AddToViewport(0);
+	UE_LOG(LogTemp, Warning, TEXT("LinkedSoulsHUD: Widget added ✓"));
 	BindToLocalPlayer();
 }
 
@@ -87,14 +98,35 @@ void ALinkedSoulsHUD::BindToLocalPlayer()
 	if (Cast<ABodyCharacter>(Pawn))
 	{
 		bLocalPlayerIsBody = true;
-		HUDWidget->bIsBodyPlayer = true;
+		if (HUDWidget) HUDWidget->bIsBodyPlayer = true;
 		UE_LOG(LogTemp, Log, TEXT("LinkedSoulsHUD: Local player = Body"));
 	}
 	else if (Cast<ASoulCharacter>(Pawn))
 	{
 		bLocalPlayerIsBody = false;
-		HUDWidget->bIsBodyPlayer = false;
+		if (HUDWidget) HUDWidget->bIsBodyPlayer = false;
 		UE_LOG(LogTemp, Log, TEXT("LinkedSoulsHUD: Local player = Soul"));
+	}
+
+	// ── Initial bar values from ASC ──
+	if (ASC && HUDWidget)
+	{
+		const float Health = ASC->GetNumericAttribute(ULinkedSoulsAttributeSet::GetHealthAttribute());
+		const float MaxHealth = ASC->GetNumericAttribute(ULinkedSoulsAttributeSet::GetMaxHealthAttribute());
+		const float SoulEnergy = ASC->GetNumericAttribute(ULinkedSoulsAttributeSet::GetSoulEnergyAttribute());
+		const float MaxSoulEnergy = ASC->GetNumericAttribute(ULinkedSoulsAttributeSet::GetMaxSoulEnergyAttribute());
+		const float Corruption = ASC->GetNumericAttribute(ULinkedSoulsAttributeSet::GetCorruptionAttribute());
+		const float MaxCorruption = ASC->GetNumericAttribute(ULinkedSoulsAttributeSet::GetMaxCorruptionAttribute());
+
+		if (bLocalPlayerIsBody)
+		{
+			HUDWidget->UpdateHealthBar(Health, MaxHealth);
+		}
+		else
+		{
+			HUDWidget->UpdateCorruptionBar(Corruption, MaxCorruption);
+		}
+		HUDWidget->UpdateSoulEnergyBar(SoulEnergy, MaxSoulEnergy);
 	}
 
 	// ── SoulEnergyComponent (on GameState) ──
@@ -142,8 +174,8 @@ void ALinkedSoulsHUD::OnHealthChanged(const FOnAttributeChangeData& Data)
 
 	if (HUDWidget)
 	{
-		HUDWidget->UpdateHealthBar(Data.NewValue, GetAttributeMax(
-			ULinkedSoulsAttributeSet::GetHealthAttribute()));
+		HUDWidget->UpdateHealthBar(Data.NewValue,
+			GetAttributeMax(ULinkedSoulsAttributeSet::GetMaxHealthAttribute()));
 	}
 }
 
@@ -152,8 +184,8 @@ void ALinkedSoulsHUD::OnSoulEnergyAttributeChanged(
 {
 	if (HUDWidget)
 	{
-		HUDWidget->UpdateSoulEnergyBar(Data.NewValue, GetAttributeMax(
-			ULinkedSoulsAttributeSet::GetSoulEnergyAttribute()));
+		HUDWidget->UpdateSoulEnergyBar(Data.NewValue,
+			GetAttributeMax(ULinkedSoulsAttributeSet::GetMaxSoulEnergyAttribute()));
 	}
 }
 
@@ -163,8 +195,8 @@ void ALinkedSoulsHUD::OnCorruptionChanged(const FOnAttributeChangeData& Data)
 
 	if (HUDWidget)
 	{
-		HUDWidget->UpdateCorruptionBar(Data.NewValue, GetAttributeMax(
-			ULinkedSoulsAttributeSet::GetCorruptionAttribute()));
+		HUDWidget->UpdateCorruptionBar(Data.NewValue,
+			GetAttributeMax(ULinkedSoulsAttributeSet::GetMaxCorruptionAttribute()));
 	}
 }
 

@@ -46,12 +46,17 @@ ALinkedSoulsPlayerCharacter::ALinkedSoulsPlayerCharacter()
 
 	// Character rotates to face movement direction (standard third-person feel)
 	bUseControllerRotationYaw = false;
+	bUseControllerRotationPitch = false;
+	bUseControllerRotationRoll = false;
 	GetCharacterMovement()->bOrientRotationToMovement = true;
+	GetCharacterMovement()->RotationRate = FRotator(0.f, 500.f, 0.f);
 	GetCharacterMovement()->AirControl = 0.35f;
 	GetCharacterMovement()->MaxWalkSpeed = 600.0f;
 
-	// Position the mesh so the capsule base touches the ground
-	GetMesh()->SetRelativeLocation(FVector(0.0f, 0.0f, -GetCapsuleComponent()->GetScaledCapsuleHalfHeight()));
+	// Manny faces +Y in mesh space; capsule forward is +X — yaw -90 aligns mesh to movement
+	GetMesh()->SetRelativeLocationAndRotation(
+		FVector(0.f, 0.f, -96.f),
+		FRotator(0.f, -90.f, 0.f));
 
 	// Load shared Input Actions so they are non-null when SetupPlayerInputComponent binds them
 	static ConstructorHelpers::FObjectFinder<UInputAction> MoveAsset(TEXT("/Game/Input/Actions/IA_Move.IA_Move"));
@@ -136,7 +141,7 @@ void ALinkedSoulsPlayerCharacter::Move(const FInputActionValue& Value)
 {
 	// unpack a 2D input into right / forward and forward to DoMove
 	const FVector2D MovementVector = Value.Get<FVector2D>();
-	DoMove(MovementVector.X, MovementVector.Y);
+	DoMove(MovementVector);
 }
 
 void ALinkedSoulsPlayerCharacter::Look(const FInputActionValue& Value)
@@ -146,17 +151,16 @@ void ALinkedSoulsPlayerCharacter::Look(const FInputActionValue& Value)
 	DoLook(LookAxisVector.X, LookAxisVector.Y);
 }
 
-void ALinkedSoulsPlayerCharacter::DoMove(float Right, float Forward)
+void ALinkedSoulsPlayerCharacter::DoMove(const FVector2D& Value)
 {
-	if (Controller)
-	{
-		// camera-relative movement: WASD aligns to camera facing, not actor facing
-		const FRotator YawRotation(0, Controller->GetControlRotation().Yaw, 0);
-		const FVector ForwardDir = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
-		const FVector RightDir = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
-		AddMovementInput(ForwardDir, Forward);
-		AddMovementInput(RightDir, Right);
-	}
+	if (!Controller || Value.IsZero()) return;
+
+	const FRotator ControlRot = Controller->GetControlRotation();
+	const FRotator YawRot(0.f, ControlRot.Yaw, 0.f);
+	const FMatrix RotMatrix = FRotationMatrix(YawRot);
+
+	AddMovementInput(RotMatrix.GetUnitAxis(EAxis::X), Value.Y);
+	AddMovementInput(RotMatrix.GetUnitAxis(EAxis::Y), Value.X);
 }
 
 void ALinkedSoulsPlayerCharacter::DoLook(float Yaw, float Pitch)
@@ -256,12 +260,10 @@ void ALinkedSoulsPlayerCharacter::AddInputContexts()
 	bInputContextsAdded = true;
 	GetWorldTimerManager().ClearTimer(DelayedIMCSetupTimer);
 
-	UInputMappingContext* IMC_Default = LoadObject<UInputMappingContext>(nullptr,
-		TEXT("/Game/Input/IMC_Default.IMC_Default"));
-	if (IMC_Default)
-	{
-		Subsystem->AddMappingContext(IMC_Default, 0);
-	}
+	// Do NOT add IMC_Default: it also binds WASD→IA_Move with Swizzle YXZ.
+	// Body/Soul then add IMC_Body/IMC_Soul with the same Swizzle. Enhanced Input
+	// stacks both mappings → double YXZ swap cancels → W lands on X (sideways).
+	// Character-specific IMCs already contain full WASD + Jump + Look.
 
 	UInputMappingContext* IMC_MouseLook = LoadObject<UInputMappingContext>(nullptr,
 		TEXT("/Game/Input/IMC_MouseLook.IMC_MouseLook"));

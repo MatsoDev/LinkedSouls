@@ -9,8 +9,12 @@
 
 class ABodyCharacter;
 class ASoulCharacter;
+class ALinkedSoulsPlayerCharacter;
 class UAbilitySystemComponent;
 class ULinkedSoulsAttributeSet;
+class UWidgetComponent;
+class UUserWidget;
+class UBehaviorTree;
 
 /** Which world(s) this enemy exists in. */
 UENUM(BlueprintType)
@@ -118,6 +122,24 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	ULinkedSoulsAttributeSet* AttributeSet;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	UWidgetComponent* HealthBarComponent;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|UI")
+	TSubclassOf<UUserWidget> EnemyHealthBarClass;
+
+	/** Refresh the floating health bar (Physical HP pool). */
+	UFUNCTION(BlueprintCallable, Category = "Enemy|UI")
+	void OnHealthUpdated(float Current, float Max);
+
+	/** Behavior tree asset assigned in editor (BT_LinkedSoulsEnemy). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AI")
+	UBehaviorTree* BehaviorTree = nullptr;
+
+	/** AI-driven attack: Corruption on Soul, Health damage on Body. */
+	UFUNCTION(BlueprintCallable, Category = "Enemy|Combat")
+	void PerformAttack(ALinkedSoulsPlayerCharacter* Target);
+
 protected:
 
 	virtual void BeginPlay() override;
@@ -132,12 +154,6 @@ protected:
 
 	/** Called when SpiritHP reaches zero. */
 	void OnSpiritDestroyed();
-
-	/** Placeholder attack: applies GE_CorruptionDamage to nearby Soul. */
-	void Server_EnemyAttackSoul();
-
-	/** Timer handle for the placeholder attack. */
-	FTimerHandle AttackSoulTimerHandle;
 
 	// -- Replication --------------------------------------------------------
 

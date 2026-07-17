@@ -13,11 +13,7 @@ class LINKEDSOULS_API ULinkedSoulsUserWidget : public UUserWidget
 public:
 	ULinkedSoulsUserWidget(const FObjectInitializer& ObjectInitializer);
 
-	// ── Programmatic layout ──
-
 	virtual void NativeConstruct() override;
-
-	// ── BindWidget UMG elements (bound from optional Blueprint child) ──
 
 	UPROPERTY(meta = (BindWidget))
 	class UProgressBar* HealthBar;
@@ -28,22 +24,20 @@ public:
 	UPROPERTY(meta = (BindWidget))
 	class UProgressBar* CorruptionBar;
 
-	UPROPERTY(meta = (BindWidget))
+	UPROPERTY(meta = (BindWidgetOptional))
 	class UImage* SynergyIndicator;
 
-	UPROPERTY(meta = (BindWidget))
+	UPROPERTY(meta = (BindWidgetOptional))
 	class UImage* WorldIndicator;
 
-	UPROPERTY(meta = (BindWidget))
+	UPROPERTY(meta = (BindWidgetOptional))
 	class UTextBlock* HealthLabel;
 
-	UPROPERTY(meta = (BindWidget))
+	UPROPERTY(meta = (BindWidgetOptional))
 	class UTextBlock* SoulEnergyLabel;
 
-	UPROPERTY(meta = (BindWidget))
+	UPROPERTY(meta = (BindWidgetOptional))
 	class UTextBlock* CorruptionLabel;
-
-	// ── Data (BlueprintReadOnly for UMG binding) ──
 
 	UPROPERTY(BlueprintReadOnly, Category = "HUD|Health")
 	float CurrentHealth = 100.0f;
@@ -75,8 +69,6 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "HUD|World")
 	bool bIsBodyPlayer = true;
 
-	// ── BlueprintImplementableEvent (visual layer for BP child) ──
-
 	UFUNCTION(BlueprintImplementableEvent, Category = "HUD")
 	void OnHealthUpdated(float Current, float Max);
 
@@ -95,8 +87,6 @@ public:
 	UFUNCTION(BlueprintImplementableEvent, Category = "HUD")
 	void OnWorldIndicatorUpdated(bool bInSpiritWorld);
 
-	// ── C++ wrapper API (called by HUD) ──
-
 	void UpdateHealthBar(float Current, float Max);
 	void UpdateSoulEnergyBar(float Current, float Max);
 	void UpdateCorruptionBar(float Current, float Max);
@@ -106,14 +96,7 @@ public:
 	void SetSynergyActive(bool bActive);
 
 private:
+	void BuildHUD();
 
-	/** Creates the full UMG layout in C++ when no Blueprint child provides BindWidget slots. */
-	void CreateProgrammaticLayout();
-
-	/** Helper: builds a progress bar. */
-	class UProgressBar* MakeBar(const FLinearColor& FillColor);
-
-	/** Helper: builds a text label. */
-	class UTextBlock* MakeLabel(const FString& DefaultText);
-
+	class UVerticalBox* VBox;
 };
