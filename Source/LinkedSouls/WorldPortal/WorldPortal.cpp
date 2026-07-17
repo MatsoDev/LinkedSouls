@@ -91,6 +91,14 @@ void AWorldPortal::OnBodyVolumeEnter(UPrimitiveComponent* OverlappedComp, AActor
 		return;
 	}
 
+	// Guard against duplicate overlap events — BeginOverlap can fire multiple
+	// times per entry (multi-component actors, sweep quirks). If Body is
+	// already considered near, this is a duplicate; skip it.
+	if (bBodyNearPortal)
+	{
+		return;
+	}
+
 	bBodyNearPortal = true;
 
 	OnPlayerEnteredPortalRange.Broadcast(true);
@@ -108,6 +116,13 @@ void AWorldPortal::OnBodyVolumeExit(UPrimitiveComponent* OverlappedComp, AActor*
 		return;
 	}
 
+	// Guard against duplicate end-overlap events — only act if we actually
+	// considered Body near the portal.
+	if (!bBodyNearPortal)
+	{
+		return;
+	}
+
 	bBodyNearPortal = false;
 
 	CheckActivationState();
@@ -117,6 +132,12 @@ void AWorldPortal::OnSoulVolumeEnter(UPrimitiveComponent* OverlappedComp, AActor
 	UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
 	if (!Cast<ASoulCharacter>(OtherActor))
+	{
+		return;
+	}
+
+	// Guard against duplicate overlap events — see OnBodyVolumeEnter.
+	if (bSoulNearPortal)
 	{
 		return;
 	}
@@ -134,6 +155,12 @@ void AWorldPortal::OnSoulVolumeExit(UPrimitiveComponent* OverlappedComp, AActor*
 	UPrimitiveComponent* OtherComp, int32 OtherBodyIndex)
 {
 	if (!Cast<ASoulCharacter>(OtherActor))
+	{
+		return;
+	}
+
+	// Guard against duplicate end-overlap events — see OnBodyVolumeExit.
+	if (!bSoulNearPortal)
 	{
 		return;
 	}
