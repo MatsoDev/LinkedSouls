@@ -3,144 +3,170 @@
 ![Unreal Engine 5.8](https://img.shields.io/badge/Unreal%20Engine%205.8-000?style=flat&logo=unrealengine&logoColor=white)
 ![C++](https://img.shields.io/badge/C%2B%2B-00599C?style=flat&logo=cplusplus&logoColor=white)
 ![GAS](https://img.shields.io/badge/GAS-FF6F00?style=flat&logo=unrealengine&logoColor=white)
+![AI](https://img.shields.io/badge/AI%20Module-BehaviorTree-2E7D32?style=flat)
 
 ## Game Overview
 
-**Linked Souls** is a cooperative multiplayer game where two players are spiritually linked across dimensions. One player exists in the **physical world (Body)**, while the other inhabits the **spirit world (Soul)**. Together, they must cooperate to solve intricate puzzles, defeat powerful enemies, and maintain their spiritual connection.
+**Linked Souls** is a cooperative multiplayer game where two players are spiritually linked across dimensions. One player exists in the **physical world (Body)**, while the other inhabits the **spirit world (Soul)**. Together, they must cooperate to solve puzzles, defeat AI-driven enemies, and maintain their spiritual connection.
 
-The core mechanics revolve around **Gameplay Ability System (GAS)**, dual-world traversal, shared Soul Energy management, and co-op synergy between Body and Soul.
+Core tech: **Gameplay Ability System (GAS)**, dual-world traversal, shared Soul Energy, co-op synergy, and **Behavior Tree enemy AI** with sight perception.
+
+## Latest Updates (July 2026)
+
+### Enemy AI (live)
+- `ALinkedSoulsAIController` with **sight perception** (800cm / lose 1000cm)
+- Runtime Behavior Tree graph: **Patrol → Chase → Attack**
+- Blackboard keys: `TargetActor`, `HomeLocation`, `bCanSeeTarget`, `bIsAttacking`, …
+- Assets: `/Game/AI/BB_LinkedSoulsEnemy`, `/Game/AI/BT_LinkedSoulsEnemy`
+- NavMesh bounds on `RealWorld_Prototype`
+- Enemy attacks **Soul** (+Corruption) and **Body** (−Health) via `PerformAttack`
+- Floating enemy health bar (`UEnemyHealthBarWidget` + `UWidgetComponent`)
+
+### Movement & mesh
+- Camera-relative WASD (IMC double-swizzle fixed — no more sideways W)
+- Manny mesh yaw **−90°** so character faces movement direction
+- Soul: low gravity `0.3`, jump `150`, air control `0.8`
+
+### HUD
+- `WBP_LinkedSoulsHUD` bound to `ULinkedSoulsUserWidget`
+- Health / Soul Energy / Corruption bars update from GAS + SoulEnergyComponent
+- Labels & synergy/world indicators optional / collapsed by default
+
+### Balance
+| Setting | Old | New |
+|---------|-----|-----|
+| Corruption per enemy hit | +15 | **+8** |
+| Soul Energy base regen | 2/s | **5/s** |
+| Spirit Attack cost | 20 | **15** |
+| Soul Pulse cost | 30 | **20** |
+| Enemy attack cadence | 2s timer | **BT attack ~1.5s cooldown** |
+
+### Input
+- `IMC_Default` keyboard WASD cleared (avoids stacking with Body/Soul IMCs)
+- Body/Soul IMCs at priority 2; correct Swizzle YXZ / Negate layout
+
+---
 
 ## Features
 
-- **Dual-World Gameplay**: Two distinct dimensions (Physical and Spirit) with unique mechanics
-- **Cooperative Multiplayer**: Seamless 2-player experience via Listen Server
-- **GAS Combat System**: Full GameplayAbilitySystem integration with 7 custom GameplayEffects
-- **Shared Soul Energy Pool**: Both players consume from a single energy resource
-- **Co-op Synergy Buff**: Body hits grant Soul bonus damage (Linked.Synergy.Active tag)
-- **Corruption Mechanic**: Soul takes corruption damage over time, death at max corruption
-- **Dynamic Combat**: Sphere-sweep melee (Body), line-trace spirit attack (Soul), AoE soul pulse
-- **Enemy GAS**: Enemies own ASC + AttributeSet with their own corruption attacks
-- **Pure C++ HUD**: UMG bars for Health, Soul Energy, Corruption with synergy/world indicators
-- **Animation System**: Manny ABP assigned in C++ with custom AnimInstance properties
-- **Enhanced Input System**: Separate IMC_Body / IMC_Soul mapping contexts
+- **Dual-World Gameplay** — Real (Body) and Spirit (Soul) dimensions
+- **Co-op Multiplayer** — Listen Server, 2 players, partners linked on spawn
+- **GAS Combat** — 7+ custom GameplayEffects, attribute death hooks
+- **Shared Soul Energy** — one pool on GameState, regen/drain/ability costs
+- **Co-op Synergy** — Body hits apply `Linked.Synergy.Active` buff to Soul (no re-apply spam)
+- **Corruption** — Soul accumulates corruption; death at max
+- **Enemy AI** — Perception + BT patrol/chase/attack (not a fixed timer)
+- **World Portal** — dimension transition interactions
+- **Pure C++ first** — UMG widgets + BB/BT assets where needed
 
 ## Controls
 
-### Body Player (Physical World) — IMC_Body
+### Body — IMC_Body
 
 | Action | Input | Description |
 |--------|-------|-------------|
-| Movement | WASD | Camera-relative movement |
-| Look Around | Mouse | Yaw/pitch camera control |
-| Jump | Spacebar | Standard jump |
-| Body Melee | F | 600cm sphere sweep, 25 damage, applies synergy buff to Soul |
-| World Shift | E | Shift to Spirit World (costs energy, continuous drain) |
+| Move | WASD | Camera-relative |
+| Look | Mouse | Yaw / pitch |
+| Jump | Space | Jump |
+| Melee | F | Sphere sweep, physical damage, synergy on Soul |
+| World Shift | E | Enter Spirit World (energy cost + drain) |
 
-### Soul Player (Spirit World) — IMC_Soul
+### Soul — IMC_Soul
 
 | Action | Input | Description |
 |--------|-------|-------------|
-| Movement | WASD | Camera-relative movement (low gravity 0.3f) |
-| Look Around | Mouse | Yaw/pitch camera control |
-| Jump | Spacebar | Standard jump |
-| Spirit Attack | LMB | 800cm line trace, 30 damage (45 with synergy), costs 20 energy |
-| Soul Pulse | Q | 400cm AoE sphere, 20 damage all targets, costs 30 energy |
-| Manifest | E | Manifest to Real World (costs energy, continuous drain) |
+| Move | WASD | Camera-relative, low gravity |
+| Look | Mouse | Yaw / pitch |
+| Jump | Space | Jump (reduced Z velocity) |
+| Spirit Attack | LMB | Line trace, costs **15** energy |
+| Soul Pulse | Q | AoE sphere, costs **20** energy |
+| Manifest | E | Enter Real World (energy cost + drain) |
 
-## Combat System (GAS)
+## Combat (GAS)
 
-### Gameplay Effects
+| Effect | Amount | Notes |
+|--------|--------|-------|
+| GE_BodyMeleeDamage | −25 Health | Body melee |
+| GE_SpiritAttackDamage | −30 Health | Soul LMB |
+| GE_SpiritAttackSynergyDamage | −45 Health | With synergy tag |
+| GE_SoulPulseDamage | −20 Health | AoE |
+| GE_CorruptionDamage | **+8** Corruption | Enemy → Soul |
+| GE_CorruptionDecay | −5 Corruption | Soul self, every 2s |
+| GE_BodySynergyBuff | 10s | Tag `Linked.Synergy.Active` |
 
-| Effect | Type | Amount | Tags |
-|--------|------|--------|------|
-| GE_BodyMeleeDamage | Instant | -25 Health | `Combat.Damage.Physical` |
-| GE_SpiritAttackDamage | Instant | -30 Health | `Combat.Damage.Spirit` |
-| GE_SpiritAttackSynergyDamage | Instant | -45 Health | `Combat.Damage.Spirit` |
-| GE_SoulPulseDamage | Instant | -20 Health | `Combat.Damage.Spirit`, `Combat.AoE` |
-| GE_CorruptionDamage | Instant | +15 Corruption | `Combat.Damage.Corruption` |
-| GE_CorruptionDecay | Instant | -5 Corruption | (self-applied every 2s) |
-| GE_BodySynergyBuff | Duration 10s | — | `Linked.Synergy.Active` |
+### Soul Energy
 
-### Hit Detection
+- Pool on `ALinkedSoulsGameState` / `USoulEnergyComponent`
+- Start 50 / max 100
+- Regen **5/s** base, higher when partners close
+- Continuous drain during World Shift / Manifest
 
-- **Body Melee (F)**: Server RPC → `SweepMultiByChannel(ECC_Pawn)` with 600cm length, 100cm radius sphere. Applies GE_BodyMeleeDamage to each target with an ASC. On any hit, applies GE_BodySynergyBuff to linked Soul's ASC.
-- **Spirit Attack (LMB)**: Server RPC → `LineTraceSingleByChannel(ECC_Pawn)` 800cm. Applies GE_SpiritAttackDamage or GE_SpiritAttackSynergyDamage (if synergy tag present). Costs 20 Soul Energy.
-- **Soul Pulse (Q)**: Server RPC → `OverlapMultiByObjectType(ECC_Pawn)` 400cm radius. Applies GE_SoulPulseDamage to all targets. Costs 30 Soul Energy.
-- **Enemy Attack**: `OverlapMultiByObjectType(ECC_Pawn)` 200cm radius every 2s. Applies GE_CorruptionDamage (+15 Corruption) to nearby Soul.
+## Enemy AI Flow
 
-### Death Handling
+```
+Perception (sight)
+    ↓
+Blackboard TargetActor / bCanSeeTarget
+    ↓
+Behavior Tree (runtime graph if asset root empty)
+    ├── Service: UpdateTarget (0.5s, clear after 3s lost sight)
+    ├── Sequence: ChaseTarget → AttackTarget
+    └── PatrolMove (random reachable / direct fallback)
+```
 
-- `PostGameplayEffectExecute` in `ULinkedSoulsAttributeSet` checks Health ≤ 0 (Body) or Corruption ≥ Max (Soul)
-- On death: `Owner->Destroy()` or `OnCharacterDeath()` for players; `SetLifeSpan(3.0f)` for enemies
-
-### Soul Energy System
-
-- **Shared pool** on `ALinkedSoulsGameState` via `USoulEnergyComponent`
-- Starts at 50, max 100
-- **Regen**: +2/sec base, +5/sec when Body+Soul within 1000cm
-- **Drain**: -2/sec while World Shift/Manifest active
-- **Ability costs**: SpiritAttack 20, SoulPulse 30, Shift/Manifest 20 flat + continuous drain
-- Blocked if insufficient energy (`ConsumeSoulEnergy` returns false)
+- **Chase** acceptance ~150cm; pathfinding with **direct-move fallback**
+- **Attack** range ~200cm, cooldown ~1.5s → `ABaseEnemy::PerformAttack`
+- AI class: `ALinkedSoulsAIController` (AutoPossessAI on BaseEnemy)
 
 ## Project Structure
 
 ```
-LinkedSouls/
-├── Source/LinkedSouls/
-│   ├── Abilities/                # 7 GAS GameplayEffects (.h/.cpp pair each)
-│   │   ├── GE_BodyMeleeDamage.h/cpp
-│   │   ├── GE_BodySynergyBuff.h/cpp
-│   │   ├── GE_CorruptionDamage.h/cpp
-│   │   ├── GE_CorruptionDecay.h/cpp
-│   │   ├── GE_SoulPulseDamage.h/cpp
-│   │   ├── GE_SpiritAttackDamage.h/cpp
-│   │   └── GE_SpiritAttackSynergyDamage.h/cpp
-│   ├── Animation/                # C++ AnimInstance (Speed, bIsInAir, bIsAttacking)
-│   ├── DualWorld/                # World dimension manager
-│   ├── Elements/                 # ElementComponent + ELinkedSoulsElement
-│   ├── Enemies/                  # ABaseEnemy (GAS, dual-HP, corruption attacks)
-│   ├── GameState/                # ALinkedSoulsGameState (owns SoulEnergyComponent)
-│   ├── HUD/                      # ALinkedSoulsHUD + ULinkedSoulsUserWidget
-│   ├── Input/                    # Enhanced Input configuration
-│   ├── Player/                   # BodyCharacter, SoulCharacter, AttributeSet
-│   ├── Puzzles/                  # Puzzle mechanics
-│   ├── SoulEnergy/               # USoulEnergyComponent (shared pool)
-│   └── WorldPortal/              # Dimension transition system
-├── Content/
-│   ├── Blueprints/               # BP_LinkedSoulsGameMode
-│   ├── Characters/               # Manny/SK_Mannequin meshes + ABP_Manny
-│   ├── Input/                    # IMC_Body, IMC_Soul, IA_* assets
-│   └── Maps/                     # Game levels
-├── Config/
-├── LinkedSouls.uproject
-└── README.md
+Source/LinkedSouls/
+├── AI/                    # AIController, BT tasks/service, BB keys
+├── Abilities/             # GAS GameplayEffects
+├── Animation/             # LinkedSoulsAnimInstance
+├── DualWorld/             # Dual world manager
+├── Elements/              # ElementComponent
+├── Enemies/               # BaseEnemy, TreeHeartBoss
+├── GameState/             # LinkedSoulsGameState
+├── HUD/                   # LinkedSoulsHUD + UserWidget
+├── Player/                # Body, Soul, AttributeSet, base character
+├── SoulEnergy/            # Shared energy component
+├── UI/                    # EnemyHealthBarWidget
+└── WorldPortal/           # Portal system
+
+Content/
+├── AI/                    # BB_LinkedSoulsEnemy, BT_LinkedSoulsEnemy
+├── Blueprints/            # WBP_LinkedSoulsHUD, GameMode/GameState BPs
+├── Input/                 # IMC_Body, IMC_Soul, IMC_Default, IA_*
+└── Maps/                  # RealWorld_Prototype (+ NavMesh)
 ```
 
 ## Core Classes
 
-| Class | File | Description |
-|-------|------|-------------|
-| `ALinkedSoulsGameMode` | `LinkedSoulsGameMode.h/cpp` | Spawns Body/Soul in PostLogin, links partners |
-| `ALinkedSoulsGameState` | `GameState/LinkedSoulsGameState.h/cpp` | Owns the shared SoulEnergyComponent |
-| `ABodyCharacter` | `Player/BodyCharacter.h/cpp` | Body player — melee combat, World Shift |
-| `ASoulCharacter` | `Player/SoulCharacter.h/cpp` | Soul player — spirit attacks, corruption decay |
-| `ALinkedSoulsPlayerCharacter` | `Player/LinkedSoulsPlayerCharacter.h/cpp` | Base class — GAS init, camera, input |
-| `ULinkedSoulsAttributeSet` | `Player/LinkedSoulsAttributeSet.h/cpp` | Health, SoulEnergy, Corruption attributes |
-| `USoulEnergyComponent` | `SoulEnergy/SoulEnergyComponent.h/cpp` | Shared energy pool with regen/drain |
-| `ABaseEnemy` | `Enemies/BaseEnemy.h/cpp` | Enemy with GAS, dual HP, corruption attacks |
-| `ALinkedSoulsHUD` | `HUD/LinkedSoulsHUD.h/cpp` | HUD manager — attribute/synergy binding |
-| `ULinkedSoulsUserWidget` | `HUD/LinkedSoulsUserWidget.h/cpp` | C++ UMG widget with programmatic layout |
-| `ULinkedSoulsAnimInstance` | `Animation/LinkedSoulsAnimInstance.h/cpp` | Animation blueprint properties |
+| Class | Role |
+|-------|------|
+| `ALinkedSoulsGameMode` | Spawn Body/Soul, link partners |
+| `ALinkedSoulsGameState` | Owns SoulEnergyComponent |
+| `ABodyCharacter` / `ASoulCharacter` | Player pawns |
+| `ALinkedSoulsPlayerCharacter` | Shared GAS, camera, movement |
+| `ULinkedSoulsAttributeSet` | Health / SoulEnergy / Corruption |
+| `ABaseEnemy` | Dual HP, PerformAttack, BT asset, health bar |
+| `ALinkedSoulsAIController` | Perception + RunBehaviorTree |
+| `UBTTask_PatrolMove` / `ChaseTarget` / `AttackTarget` | Combat AI tasks |
+| `UBTService_UpdateTarget` | Clear target after lose-sight delay |
+| `ALinkedSoulsHUD` / `ULinkedSoulsUserWidget` | Player HUD |
+| `UEnemyHealthBarWidget` | World/screen enemy bar |
 
-## Setup & Installation
+## Setup
 
 ### Prerequisites
 
-- **Unreal Engine 5.8**
-- **Visual Studio 2022** with C++ support
-- **Git** with LFS support
+- Unreal Engine **5.8**
+- Visual Studio **2022** (C++)
+- Git + **Git LFS**
 
-### Installation
+### Install
 
 ```bash
 git clone https://github.com/MatsoDev/LinkedSouls.git
@@ -149,16 +175,36 @@ git lfs install
 git lfs pull
 ```
 
-Right-click `LinkedSouls.uproject` → **Generate Visual Studio project files**, then build in Visual Studio.
+Generate VS project files from `LinkedSouls.uproject`, open solution, **Rebuild** `LinkedSoulsEditor`.
 
-### Testing Multiplayer
+> Prefer full rebuild over Live Coding when constructors / new classes change.
 
-In Editor: **Edit → Project Settings → Maps & Modes** → set **Number of Players** to 2, **Net Mode** to `Play As Listen Server`. Press Play.
+### Multiplayer PIE
 
-## Development
+**Edit → Project Settings → Maps & Modes**  
+Number of Players = **2**, Net Mode = **Play As Listen Server** → Play.
 
-All systems are pure C++ — no Blueprint scripting required. Modify source in `Source/LinkedSouls/`, compile via **Live Coding** or rebuild in Visual Studio.
+Expected logs when AI is healthy:
+```
+LinkedSoulsAI: Built runtime BT graph ...
+LinkedSoulsAI: RunBehaviorTree OK
+LinkedSouls AI: Target acquired [...]
+BaseEnemy: Attacked [...]
+```
+
+## What's Next
+
+Priority candidates (not started unless requested):
+
+1. **Dual-world polish** — Real vs Spirit visibility, shift/manifest feel, portal co-op flow  
+2. **Boss AI** — `TreeHeartBoss` phases, dual Physical/Spirit HP in BT  
+3. **Combat juice** — attack anims, hit reacts, VFX, feedback  
+4. **Enemy variety** — spawners, more archetypes, difficulty curves  
+5. **Co-op puzzles** — Body+Soul required interactions  
+6. **Replication pass** — listen-server / client edge cases  
 
 ---
 
-**Built with Unreal Engine 5.8 | C++ | Gameplay Ability System | Enhanced Input**
+**Built with Unreal Engine 5.8 · C++ · GAS · Enhanced Input · AIModule / Behavior Trees**
+
+Repo: [github.com/MatsoDev/LinkedSouls](https://github.com/MatsoDev/LinkedSouls)
