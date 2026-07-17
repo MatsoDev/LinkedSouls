@@ -71,6 +71,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "LinkedSouls|Co-op")
 	void SetLinkedBody(ABodyCharacter* InBody);
 
+	/**
+	 *  Override of the base SetLinkedPartner that also syncs the typed
+	 *  LinkedBody pointer. Ensures Manifest can resolve the Body even when
+	 *  only the base-class link has been wired (e.g. LinkPartners ordering).
+	 */
+	virtual void SetLinkedPartner(ALinkedSoulsPlayerCharacter* Partner) override;
+
 	/** @returns the linked Body character, or nullptr if unset / destroyed. */
 	UFUNCTION(BlueprintPure, Category = "LinkedSouls|Co-op")
 	ABodyCharacter* GetLinkedBody() const;

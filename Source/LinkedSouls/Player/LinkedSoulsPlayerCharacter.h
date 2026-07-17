@@ -172,9 +172,9 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "LinkedSouls|Co-op")
 	TWeakObjectPtr<ALinkedSoulsPlayerCharacter> LinkedPartner;
 
-	/** Assign the co-op partner. */
+	/** Assign the co-op partner. Virtual so subclasses can sync typed links. */
 	UFUNCTION(BlueprintCallable, Category = "LinkedSouls|Co-op")
-	void SetLinkedPartner(ALinkedSoulsPlayerCharacter* Partner);
+	virtual void SetLinkedPartner(ALinkedSoulsPlayerCharacter* Partner);
 
 	/** @returns the linked partner, or nullptr if unset or destroyed. */
 	UFUNCTION(BlueprintPure, Category = "LinkedSouls|Co-op")

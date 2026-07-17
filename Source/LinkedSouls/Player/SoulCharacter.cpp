@@ -204,6 +204,26 @@ void ASoulCharacter::SetLinkedBody(ABodyCharacter* InBody)
 	LinkedBody = InBody;
 }
 
+void ASoulCharacter::SetLinkedPartner(ALinkedSoulsPlayerCharacter* Partner)
+{
+	Super::SetLinkedPartner(Partner);
+
+	// Sync the typed LinkedBody pointer from the generic partner so Manifest
+	// can resolve the Body even when SetLinkedBody() wasn't called explicitly
+	// (e.g. GameMode wired only the base-class link, or LinkPartners ran out
+	// of order).
+	LinkedBody = Cast<ABodyCharacter>(Partner);
+	if (LinkedBody.IsValid())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("SoulCharacter: LinkedBody assigned from partner ✓"));
+	}
+	else if (Partner)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("SoulCharacter: Partner set but not a BodyCharacter (%s)"),
+			*Partner->GetName());
+	}
+}
+
 ABodyCharacter* ASoulCharacter::GetLinkedBody() const
 {
 	return LinkedBody.Get();
@@ -412,10 +432,24 @@ void ASoulCharacter::EnterRealWorld()
 		return;
 	}
 
-	// warn if the co-op link is not established yet
-	if (!LinkedBody.IsValid())
+	// Resolve the linked Body. Prefer the typed pointer, fall back to the
+	// base-class LinkedPartner (covers the case where SetLinkedBody() never
+	// ran but SetLinkedPartner() did). Manifest has no purpose without a Body
+	// to coordinate with, so bail out if neither resolves.
+	ABodyCharacter* Body = LinkedBody.Get();
+	if (!Body)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("SoulCharacter: Manifest triggered but no LinkedBody assigned"));
+		Body = Cast<ABodyCharacter>(GetLinkedPartner());
+		if (Body)
+		{
+			// repair the typed pointer so later code paths skip the fallback
+			LinkedBody = Body;
+		}
+	}
+	if (!Body)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("SoulCharacter: Manifest — no Body found (LinkedBody and LinkedPartner both null)"));
+		return;
 	}
 
 	bIsManifested = true;

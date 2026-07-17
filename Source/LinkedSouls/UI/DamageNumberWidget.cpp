@@ -107,9 +107,18 @@ void UDamageNumberWidget::NativeTick(const FGeometry& MyGeometry, float DeltaTim
 	{
 		if (HostingComponent.IsValid())
 		{
+			// Destroying the WidgetComponent releases its widget reference and
+			// the widget is garbage-collected — no explicit RemoveFromParent
+			// needed (and RemoveFromParent logs "no UMG parent" for widgets
+			// hosted in a WidgetComponent, since they have no UMG panel parent).
 			HostingComponent->DestroyComponent();
 		}
-		RemoveFromParent();
+		else if (GetParent())
+		{
+			// Fallback: only detach if the widget actually has a UMG parent
+			// (e.g. it was added to a panel instead of a WidgetComponent).
+			RemoveFromParent();
+		}
 	}
 }
 
