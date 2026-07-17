@@ -24,7 +24,10 @@ public class LinkedSouls : ModuleRules
 			// Gameplay Ability System: attributes and abilities
 			"GameplayAbilities",
 			"GameplayTags",
-			"GameplayTasks"
+			"GameplayTasks",
+			// Niagara: hit/death VFX for combat juice
+			"Niagara",
+			"NiagaraCore"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });

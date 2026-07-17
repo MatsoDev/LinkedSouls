@@ -6,6 +6,10 @@
 #include "SoulEnergy/SoulEnergyComponent.h"
 #include "Elements/ElementComponent.h"
 #include "HUD/LinkedSoulsHUD.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
+#include "Kismet/GameplayStatics.h"
+#include "Sound/SoundBase.h"
 
 // -- Engine includes (kept out of the header) -------------------------------
 #include "Components/SkeletalMeshComponent.h"
@@ -75,6 +79,20 @@ ABodyCharacter::ABodyCharacter()
 
 	static ConstructorHelpers::FObjectFinder<UInputAction> BodyMeleeAsset(TEXT("/Game/Input/Actions/IA_BodyMelee.IA_BodyMelee"));
 	if (BodyMeleeAsset.Succeeded()) BodyMeleeAction = BodyMeleeAsset.Object;
+
+	// -- Combat Juice: assign built-in attack montage ------------------------
+	// The GameMode spawns ABodyCharacter directly from C++ (no Blueprint
+	// subclass), so the montage is bound here via ConstructorHelpers — the
+	// same pattern this class already uses for the mesh and input actions.
+	static ConstructorHelpers::FObjectFinder<UAnimMontage> MeleeMontageAsset(
+		TEXT("/Game/Characters/Mannequins/Anims/Unarmed/Attack/MM_Attack_01"));
+	if (MeleeMontageAsset.Succeeded())
+	{
+		MeleeAttackMontage = MeleeMontageAsset.Object;
+	}
+
+	// MeleeSwingSound is left null — the project ships with no sound assets.
+	// MulticastPlayMeleeAttack null-checks before playing, so this is safe.
 }
 
 void ABodyCharacter::BeginPlay()
@@ -260,6 +278,9 @@ void ABodyCharacter::PerformMeleeAttack()
 		return;
 	}
 
+	// Combat juice: play the melee montage + swing sound on every machine.
+	MulticastPlayMeleeAttack();
+
 	FVector Start = GetActorLocation();
 	FVector Forward = GetActorForwardVector();
 	FVector End = Start + Forward * 600.0f;
@@ -349,4 +370,19 @@ void ABodyCharacter::SetLinkedSoul(ASoulCharacter* InSoul)
 ASoulCharacter* ABodyCharacter::GetLinkedSoul() const
 {
 	return LinkedSoul.Get();
+}
+
+// -- Combat Juice ------------------------------------------------------------
+
+void ABodyCharacter::MulticastPlayMeleeAttack_Implementation()
+{
+	if (MeleeAttackMontage && GetMesh() && GetMesh()->GetAnimInstance())
+	{
+		GetMesh()->GetAnimInstance()->Montage_Play(MeleeAttackMontage, 1.0f);
+	}
+
+	if (MeleeSwingSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, MeleeSwingSound, GetActorLocation());
+	}
 }

@@ -3,6 +3,7 @@
 
 #include "LinkedSoulsAttributeSet.h"
 #include "LinkedSoulsPlayerCharacter.h"
+#include "Player/SoulCharacter.h"
 #include "Enemies/BaseEnemy.h"
 #include "GameplayEffectExtension.h"
 #include "Net/UnrealNetwork.h"
@@ -106,6 +107,19 @@ void ULinkedSoulsAttributeSet::PostGameplayEffectExecute(const FGameplayEffectMo
 			if (PlayerOwner)
 			{
 				PlayerOwner->OnCharacterDeath();
+			}
+		}
+
+		// Combat juice: show a purple "+amount" number on the Soul whenever
+		// Corruption increases (server detects the delta, multicasts the number).
+		// Decay effects (decreases) are ignored here — only real corruption hits
+		// should pop a number.
+		const float CorruptionDelta = GetCorruption() - OldCorruption;
+		if (CorruptionDelta > 0.0f)
+		{
+			if (ASoulCharacter* SoulOwner = Cast<ASoulCharacter>(Owner))
+			{
+				SoulOwner->MulticastShowCorruptionNumber(CorruptionDelta);
 			}
 		}
 	}

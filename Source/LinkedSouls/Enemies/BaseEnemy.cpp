@@ -7,6 +7,7 @@
 #include "Player/BodyCharacter.h"
 #include "Player/SoulCharacter.h"
 #include "UI/EnemyHealthBarWidget.h"
+#include "UI/DamageNumberWidget.h"
 #include "AI/LinkedSoulsAIController.h"
 #include "AbilitySystemComponent.h"
 #include "Abilities/GE_CorruptionDamage.h"
@@ -20,6 +21,14 @@
 #include "Net/UnrealNetwork.h"
 #include "Engine/Engine.h"
 #include "Blueprint/UserWidget.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
+#include "NiagaraFunctionLibrary.h"
+#include "NiagaraSystem.h"
+#include "Kismet/GameplayStatics.h"
+#include "Kismet/KismetSystemLibrary.h"
+#include "Sound/SoundBase.h"
+#include "TimerManager.h"
 
 ABaseEnemy::ABaseEnemy()
 {
@@ -89,6 +98,38 @@ ABaseEnemy::ABaseEnemy()
 	HealthBarComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	EnemyHealthBarClass = UEnemyHealthBarWidget::StaticClass();
 	HealthBarComponent->SetWidgetClass(UEnemyHealthBarWidget::StaticClass());
+
+	// -- Combat Juice: assign built-in engine assets --------------------------
+	// The GameMode spawns ABaseEnemy directly from C++ (no Blueprint subclass),
+	// so the juice assets are bound here via ConstructorHelpers — the same
+	// pattern this class already uses for the mesh and BehaviorTree.
+	static ConstructorHelpers::FObjectFinder<UAnimMontage> HitReactAsset(
+		TEXT("/Game/Characters/Mannequins/Anims/Rifle/HitReact/MM_HitReact_Front_Lgt_01"));
+	if (HitReactAsset.Succeeded())
+	{
+		HitReactMontage = HitReactAsset.Object;
+	}
+
+	static ConstructorHelpers::FObjectFinder<UNiagaraSystem> HitVFXAsset(
+		TEXT("/Game/Variant_Combat/VFX/NS_Damage"));
+	if (HitVFXAsset.Succeeded())
+	{
+		HitVFX = HitVFXAsset.Object;
+	}
+
+	static ConstructorHelpers::FObjectFinder<UNiagaraSystem> DeathVFXAsset(
+		TEXT("/Niagara/DefaultAssets/Templates/Systems/SimpleExplosion"));
+	if (DeathVFXAsset.Succeeded())
+	{
+		DeathVFX = DeathVFXAsset.Object;
+	}
+
+	// Damage number widget (pure C++ widget, no BP asset needed).
+	DamageNumberWidgetClass = UDamageNumberWidget::StaticClass();
+
+	// HitSound / DeathSound are left null — the project ships with no sound
+	// assets. The team can assign them later once audio art is delivered.
+	// PlayHitReact/PlayDeathFeedback null-check before playing, so this is safe.
 }
 
 // -- Lifecycle ---------------------------------------------------------------
@@ -287,6 +328,17 @@ void ABaseEnemy::OnHealthUpdated(float Current, float Max)
 	{
 		Bar->UpdateHealth(Current, Max);
 	}
+
+	// Combat juice: fire hit feedback exactly once per real damage tick.
+	// OnHealthUpdated is called from the server (TakePhysicalDamage and
+	// PostGameplayEffectExecute) — we detect a strict decrease here and
+	// multicast the cosmetic playback to all clients (Unreliable = cosmetic).
+	if (LastReportedHealth >= 0.0f && Current < LastReportedHealth)
+	{
+		const float DamageAmount = LastReportedHealth - Current;
+		MulticastPlayHitReact(DamageAmount, /*bIsCorruption=*/false);
+	}
+	LastReportedHealth = Current;
 }
 
 // -- Death logic -------------------------------------------------------------
@@ -345,7 +397,86 @@ void ABaseEnemy::Die()
 
 	UE_LOG(LogTemp, Warning, TEXT("BaseEnemy [%s]: DIED"), *GetName());
 
-	SetLifeSpan(3.0f);
+	// Combat juice: death VFX + sound on every machine, then delayed destroy.
+	PlayDeathFeedback();
+
+	// Disable collision immediately so the corpse doesn't block gameplay while
+	// the death VFX plays out, but keep the actor alive long enough for clients
+	// to receive the multicast feedback.
+	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	GetMesh()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	GetWorldTimerManager().SetTimer(
+		DeathTimerHandle,
+		this,
+		&ABaseEnemy::DestroyEnemy,
+		DeathDelaySeconds,
+		false);
+}
+
+void ABaseEnemy::DestroyEnemy()
+{
+	Destroy();
+}
+
+// -- Combat Juice -----------------------------------------------------------
+
+void ABaseEnemy::MulticastPlayHitReact_Implementation(float DamageAmount, bool bIsCorruption)
+{
+	PlayHitReact(DamageAmount, bIsCorruption);
+}
+
+void ABaseEnemy::PlayHitReact(float DamageAmount, bool bIsCorruption)
+{
+	// Hit-react montage (local playback only — montage state is not replicated
+	// by default and this is purely cosmetic).
+	if (HitReactMontage && GetMesh() && GetMesh()->GetAnimInstance())
+	{
+		GetMesh()->GetAnimInstance()->Montage_Play(HitReactMontage, 1.0f);
+	}
+
+	// Hit Niagara at chest height.
+	if (HitVFX)
+	{
+		UNiagaraFunctionLibrary::SpawnSystemAtLocation(
+			GetWorld(),
+			HitVFX,
+			GetActorLocation() + FVector(0.f, 0.f, 50.f),
+			FRotator::ZeroRotator);
+	}
+
+	// Impact sound.
+	if (HitSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, HitSound, GetActorLocation());
+	}
+
+	// Floating damage number (world-space widget component attached to the enemy).
+	if (DamageNumberWidgetClass)
+	{
+		UDamageNumberWidget::SpawnAttached(
+			DamageNumberWidgetClass,
+			this,
+			DamageAmount,
+			bIsCorruption);
+	}
+}
+
+void ABaseEnemy::PlayDeathFeedback()
+{
+	if (DeathVFX)
+	{
+		UNiagaraFunctionLibrary::SpawnSystemAtLocation(
+			GetWorld(),
+			DeathVFX,
+			GetActorLocation(),
+			FRotator::ZeroRotator);
+	}
+
+	if (DeathSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, DeathSound, GetActorLocation());
+	}
 }
 
 // -- Replication -------------------------------------------------------------
@@ -354,6 +485,17 @@ void ABaseEnemy::OnRep_EnemyState(EEnemyState OldState)
 {
 	UE_LOG(LogTemp, Log, TEXT("BaseEnemy [%s]: state → %s (client)"),
 		*GetName(), *UEnum::GetValueAsString(CurrentState));
+
+	// Remote clients learn about death through replication — play the death
+	// VFX/sound here. The server already played it locally inside Die().
+	if (CurrentState == EEnemyState::Dead && OldState != EEnemyState::Dead)
+	{
+		PlayDeathFeedback();
+
+		// Match the server: stop blocking gameplay while the death VFX plays.
+		GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		GetMesh()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	}
 }
 
 void ABaseEnemy::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const

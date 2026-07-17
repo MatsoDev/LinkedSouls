@@ -15,6 +15,10 @@ class ULinkedSoulsAttributeSet;
 class UWidgetComponent;
 class UUserWidget;
 class UBehaviorTree;
+class UAnimMontage;
+class UNiagaraSystem;
+class USoundBase;
+class UDamageNumberWidget;
 
 /** Which world(s) this enemy exists in. */
 UENUM(BlueprintType)
@@ -140,6 +144,48 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Enemy|Combat")
 	void PerformAttack(ALinkedSoulsPlayerCharacter* Target);
 
+	// -- Combat Juice (VFX / SFX / animation feedback) ----------------------
+
+	/** Montage played on the server+clients whenever this enemy takes damage. */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Juice")
+	UAnimMontage* HitReactMontage;
+
+	/** Niagara system spawned at the enemy's chest on every hit. */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Juice")
+	UNiagaraSystem* HitVFX;
+
+	/** Niagara system spawned once at the enemy's location on death. */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Juice")
+	UNiagaraSystem* DeathVFX;
+
+	/** One-shot sound played on every hit. */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Juice")
+	USoundBase* HitSound;
+
+	/** One-shot sound played on death. */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Juice")
+	USoundBase* DeathSound;
+
+	/** World-space widget class for floating damage numbers. */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Juice")
+	TSubclassOf<UDamageNumberWidget> DamageNumberWidgetClass;
+
+	/**
+	 *  Drives all combat-juice feedback (montage, VFX, sound, damage number)
+	 *  for a single hit. Called on the server from OnHealthUpdated whenever
+	 *  Health decreases, then multicasts the cosmetic playback to clients.
+	 *  @param DamageAmount   Magnitude of the hit (positive number).
+	 *  @param bIsCorruption  True for purple corruption hits, false for red damage.
+	 */
+	UFUNCTION(NetMulticast, Unreliable)
+	void MulticastPlayHitReact(float DamageAmount, bool bIsCorruption);
+
+	/** Local helper that plays the hit-react montage + VFX + sound. */
+	void PlayHitReact(float DamageAmount, bool bIsCorruption);
+
+	/** Local helper that spawns the death VFX + sound (called before destroy). */
+	void PlayDeathFeedback();
+
 protected:
 
 	virtual void BeginPlay() override;
@@ -152,8 +198,24 @@ protected:
 	/** Kills the enemy. */
 	virtual void Die();
 
+	/** Spawns death VFX/sound and destroys the actor after DeathDelaySeconds. */
+	void DestroyEnemy();
+
+	/** Timer handle backing the delayed destroy in DestroyEnemy(). */
+	FTimerHandle DeathTimerHandle;
+
+	/** Seconds between death feedback and actor destroy. */
+	static constexpr float DeathDelaySeconds = 2.0f;
+
 	/** Called when SpiritHP reaches zero. */
 	void OnSpiritDestroyed();
+
+	/**
+	 *  Last Health value reported by OnHealthUpdated.
+	 *  Used to detect decreases and fire combat-juice feedback exactly once
+	 *  per hit (rather than once per replicated correction).
+	 */
+	float LastReportedHealth = -1.0f;
 
 	// -- Replication --------------------------------------------------------
 

@@ -10,6 +10,9 @@ class ABodyCharacter;
 class UInputAction;
 class UMaterialInstanceDynamic;
 class UElementComponent;
+class UAnimMontage;
+class USoundBase;
+class UDamageNumberWidget;
 
 /**
  *  The Soul player character - lives in the Spirit World.
@@ -123,6 +126,39 @@ protected:
 	/** Server RPC — applies soul pulse damage on authority. */
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_SoulPulse();
+
+	// -- Combat Juice (protected properties, public RPCs) ---------------------
+
+	/** Montage played on Soul (and replicated to clients) on Spirit Attack. */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Juice")
+	UAnimMontage* SpiritAttackMontage;
+
+	/** Montage played on Soul (and replicated to clients) on Soul Pulse. */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Juice")
+	UAnimMontage* SoulPulseMontage;
+
+	/** World-space widget class used to show purple "+corruption" numbers on Soul. */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Juice")
+	TSubclassOf<UDamageNumberWidget> DamageNumberWidgetClass;
+
+	/** Multicast: Spirit Attack montage + VFX on all machines. */
+	UFUNCTION(NetMulticast, Unreliable)
+	void MulticastPlaySpiritAttack();
+
+	/** Multicast: Soul Pulse montage + VFX on all machines. */
+	UFUNCTION(NetMulticast, Unreliable)
+	void MulticastPlaySoulPulse();
+
+public:
+
+	/**
+	 *  Spawns a purple corruption damage number above this Soul.
+	 *  Called from LinkedSoulsAttributeSet when Corruption increases (server),
+	 *  then multicasts the cosmetic number so both players see it.
+	 *  Public so AttributeSet (which is not a friend) can invoke it.
+	 */
+	UFUNCTION(NetMulticast, Unreliable)
+	void MulticastShowCorruptionNumber(float Amount);
 
 public:
 

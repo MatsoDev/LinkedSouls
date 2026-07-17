@@ -9,6 +9,8 @@
 class ASoulCharacter;
 class UInputAction;
 class UElementComponent;
+class UAnimMontage;
+class USoundBase;
 
 /**
  *  The Body player character - lives in the Real World.
@@ -65,6 +67,20 @@ protected:
 
 	/** Performs the melee sphere trace and applies damage (server only). */
 	void PerformMeleeAttack();
+
+	// -- Combat Juice --------------------------------------------------------
+
+	/** Montage played on Body (and replicated to clients) on every melee swing. */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Juice")
+	UAnimMontage* MeleeAttackMontage;
+
+	/** Swing whoosh played on every melee swing. */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Juice")
+	USoundBase* MeleeSwingSound;
+
+	/** Multicast helper that plays the melee montage + swing sound on all machines. */
+	UFUNCTION(NetMulticast, Unreliable)
+	void MulticastPlayMeleeAttack();
 
 	// -- World Shift (Body-only ability) ------------------------------------
 

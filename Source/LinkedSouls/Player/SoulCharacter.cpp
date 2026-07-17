@@ -6,6 +6,13 @@
 #include "SoulEnergy/SoulEnergyComponent.h"
 #include "Elements/ElementComponent.h"
 #include "HUD/LinkedSoulsHUD.h"
+#include "UI/DamageNumberWidget.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
+#include "NiagaraFunctionLibrary.h"
+#include "NiagaraSystem.h"
+#include "Kismet/GameplayStatics.h"
+#include "Sound/SoundBase.h"
 
 // -- Engine includes (kept out of the header) -------------------------------
 #include "Components/SkeletalMeshComponent.h"
@@ -97,6 +104,27 @@ ASoulCharacter::ASoulCharacter()
 
 	static ConstructorHelpers::FObjectFinder<UInputAction> SoulPulseAsset(TEXT("/Game/Input/Actions/IA_SoulPulse.IA_SoulPulse"));
 	if (SoulPulseAsset.Succeeded()) SoulPulseAction = SoulPulseAsset.Object;
+
+	// -- Combat Juice: assign built-in attack montages -----------------------
+	// The GameMode spawns ASoulCharacter directly from C++ (no Blueprint
+	// subclass), so the montages are bound here via ConstructorHelpers — the
+	// same pattern this class already uses for the mesh and input actions.
+	static ConstructorHelpers::FObjectFinder<UAnimMontage> SpiritMontageAsset(
+		TEXT("/Game/Characters/Mannequins/Anims/Unarmed/Attack/MM_Attack_02"));
+	if (SpiritMontageAsset.Succeeded())
+	{
+		SpiritAttackMontage = SpiritMontageAsset.Object;
+	}
+
+	static ConstructorHelpers::FObjectFinder<UAnimMontage> PulseMontageAsset(
+		TEXT("/Game/Characters/Mannequins/Anims/Unarmed/Attack/MM_ChargedAttack"));
+	if (PulseMontageAsset.Succeeded())
+	{
+		SoulPulseMontage = PulseMontageAsset.Object;
+	}
+
+	// Damage number widget (pure C++ widget, no BP asset needed).
+	DamageNumberWidgetClass = UDamageNumberWidget::StaticClass();
 }
 
 void ASoulCharacter::BeginPlay()
@@ -221,6 +249,9 @@ void ASoulCharacter::Server_SpiritAttack_Implementation()
 		UE_LOG(LogTemp, Warning, TEXT("SpiritAttack: Synergy bonus active — 45 damage"));
 	}
 
+	// Combat juice: play the Spirit Attack montage on every machine.
+	MulticastPlaySpiritAttack();
+
 	FVector Start = GetActorLocation();
 	FVector End = Start + GetActorForwardVector() * 800.0f;
 
@@ -289,6 +320,9 @@ void ASoulCharacter::Server_SoulPulse_Implementation()
 		return;
 	}
 
+	// Combat juice: play the Soul Pulse montage on every machine.
+	MulticastPlaySoulPulse();
+
 	TArray<FOverlapResult> Overlaps;
 	FCollisionShape SphereShape = FCollisionShape::MakeSphere(400.0f);
 	FCollisionQueryParams QueryParams;
@@ -334,6 +368,33 @@ void ASoulCharacter::Server_SoulPulse_Implementation()
 bool ASoulCharacter::Server_SoulPulse_Validate()
 {
 	return true;
+}
+
+// -- Combat Juice ------------------------------------------------------------
+
+void ASoulCharacter::MulticastPlaySpiritAttack_Implementation()
+{
+	if (SpiritAttackMontage && GetMesh() && GetMesh()->GetAnimInstance())
+	{
+		GetMesh()->GetAnimInstance()->Montage_Play(SpiritAttackMontage, 1.0f);
+	}
+}
+
+void ASoulCharacter::MulticastPlaySoulPulse_Implementation()
+{
+	if (SoulPulseMontage && GetMesh() && GetMesh()->GetAnimInstance())
+	{
+		GetMesh()->GetAnimInstance()->Montage_Play(SoulPulseMontage, 1.0f);
+	}
+}
+
+void ASoulCharacter::MulticastShowCorruptionNumber_Implementation(float Amount)
+{
+	if (DamageNumberWidgetClass)
+	{
+		UDamageNumberWidget::SpawnAttached(
+			DamageNumberWidgetClass, this, Amount, /*bIsCorruption=*/true);
+	}
 }
 
 void ASoulCharacter::EnterRealWorld()
